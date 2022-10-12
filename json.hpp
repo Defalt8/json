@@ -34,6 +34,21 @@
  		  }
  	});
 	
+	// to get a pointer to a certain entry you can use get, get<> or get_value
+	
+	jobject.get("0001"); 
+	  // would return a pointer to the base_ptr_t stored with the key "0001"
+	  // in the root object
+	  // It would return nullptr if the entry is not found.
+	
+	jobject.get<json::String>("0001.title"); 
+	  // would return a pointer to the json::String stored with the key 
+	  // "title" in the object stored with the key "0001" in the root object.
+	  // It would return nullptr if the entry is not found or it is of a different type.
+	
+	jobject.get_value<json::Number>("0001.price"); 
+	  // would return a pointer to the value of the json::Number stored at "0001"->"price".
+	  // It would return nullptr if the entry is not found or it is of a different type.
 
 	// you can modify these two before printing
 	json::newline = ""; // default is "\n"
@@ -155,6 +170,15 @@ enum class Type
 	, Array
 };
 
+template <class C> struct CType { static constexpr Type type() { return Type::Base; } };
+template <> struct CType<Null> { static constexpr Type value()    { return Type::Null; } };
+template <> struct CType<Boolean> { static constexpr Type value() { return Type::Boolean; } };
+template <> struct CType<Integer> { static constexpr Type value() { return Type::Integer; } };
+template <> struct CType<Number> { static constexpr Type value()  { return Type::Number; } };
+template <> struct CType<String> { static constexpr Type value()  { return Type::String; } };
+template <> struct CType<Object> { static constexpr Type value()  { return Type::Object; } };
+template <> struct CType<Array> { static constexpr Type value()   { return Type::Array; } };
+
 class Base
 {
  protected:
@@ -171,12 +195,16 @@ class Base
 class Null final : public Base 
 {
  public:
+	using value_t = null_t;
+
 	Null()             = default;
 	~Null()            = default;
 	Null(Null &&)      = default;
 	Null(Null const &) = delete;
 	Null(null_t null_) {}
-	Type type() const override { return Type::Null; }
+	Type type() const override  { return Type::Null; }
+	value_t       value()       { return json::null; }
+	value_t const value() const { return json::null; }
 };
 
 class Boolean final : public Base 
@@ -184,6 +212,8 @@ class Boolean final : public Base
 	boolean_t m_boolean {};
 
  public:
+	using value_t = boolean_t;
+
 	Boolean()                = default;
 	~Boolean()               = default;
 	Boolean(Boolean &&)      = default;
@@ -195,6 +225,8 @@ class Boolean final : public Base
 
 	boolean_t const & boolean() const { return m_boolean; }
 	boolean_t       & boolean()       { return m_boolean; }
+	value_t         & value()         { return m_boolean; }
+	value_t   const & value()   const { return m_boolean; }
 };
 
 class Integer final : public Base 
@@ -202,6 +234,8 @@ class Integer final : public Base
 	integer_t m_integer {};
 
  public:
+	using value_t = integer_t;
+
 	Integer()                = default;
 	~Integer()               = default;
 	Integer(Integer &&)      = default;
@@ -213,6 +247,8 @@ class Integer final : public Base
 
 	integer_t const & integer() const { return m_integer; }
 	integer_t       & integer()       { return m_integer; }
+	value_t         & value()         { return m_integer; }
+	value_t   const & value()   const { return m_integer; }
 };
 
 class Number final : public Base 
@@ -220,6 +256,8 @@ class Number final : public Base
 	number_t m_number {};
 
  public:
+	using value_t = number_t;
+
 	Number()               = default;
 	~Number()              = default;
 	Number(Number &&)      = default;
@@ -231,6 +269,8 @@ class Number final : public Base
 
 	number_t const & number() const { return m_number; }
 	number_t       & number()       { return m_number; }
+	value_t        & value()        { return m_number; }
+	value_t  const & value()  const { return m_number; }
 };
 
 class String final : public Base 
@@ -238,6 +278,8 @@ class String final : public Base
 	string_t m_string {};
 
  public:
+	using value_t = string_t;
+
 	String()               = default;
 	~String()              = default;
 	String(String &&)      = default;
@@ -252,6 +294,8 @@ class String final : public Base
 
 	string_t const & string() const { return m_string; }
 	string_t       & string()       { return m_string; }
+	value_t        & value()        { return m_string; }
+	value_t  const & value()  const { return m_string; }
 
 };
 
@@ -260,6 +304,8 @@ class Array final : public Base
 	array_elements_t m_elements {};
 
  public:
+	using value_t = array_elements_t;
+
 	Array()  = default;
 	~Array() = default;
 	Array(Array &&)      = default;
@@ -288,6 +334,8 @@ class Array final : public Base
 
 	array_elements_t       & elements()       { return m_elements; }
 	array_elements_t const & elements() const { return m_elements; }
+	value_t                & value()          { return m_elements; }
+	value_t          const & value()    const { return m_elements; }
 
 };
 
@@ -296,6 +344,8 @@ class Object final : public Base
 	object_entries_t m_entries {};
 
  public:
+	using value_t = object_entries_t;
+
 	Object()  = default;
 	~Object() = default;
 	Object(Object &&)      = default;
@@ -310,8 +360,107 @@ class Object final : public Base
 
 	Type type() const override { return Type::Object; }
 
+	// id must be an aggregate of object keys separated by '.'
+	// get("user.name") would look for the object entry with the key 'name' 
+	//  in the root object entry with the key 'user' 
+	base_ptr_t *
+	get(string_t id) noexcept
+	{
+		size_t index_0   = 0;
+		size_t index_1   = std::min(id.find('.', 0), id.size());
+		string_t root_id = id.substr(index_0, index_1 - index_0);
+		index_0 = index_1 + 1;
+		auto it = m_entries.find(root_id);
+		if(it == m_entries.end())
+			return nullptr;
+		// consequently locate the entries with the sub ids
+		while(index_0 < id.size())
+		{
+			index_1 = std::min(id.find('.', index_0), id.size());
+			string_t cur_id = id.substr(index_0, index_1 - index_0);
+			index_0 = index_1 + 1;
+			if(it->second->type() != Type::Object)
+				return nullptr;
+			auto & cur_object_entries = static_cast<json::Object *>(it->second.get())->entries();
+			it = cur_object_entries.find(cur_id);
+			if(it == cur_object_entries.end())
+				return nullptr;
+		} 
+		return &(it->second);
+	}
+
+	base_ptr_t const *
+	get(string_t id) const noexcept
+	{
+		size_t index_0   = 0;
+		size_t index_1   = std::min(id.find('.', 0), id.size());
+		string_t root_id = id.substr(index_0, index_1 - index_0);
+		index_0 = index_1 + 1;
+		auto it = m_entries.find(root_id);
+		if(it == m_entries.end())
+			return nullptr;
+		// consequently locate the entries with the sub ids
+		while(index_0 < id.size())
+		{
+			index_1 = std::min(id.find('.', index_0), id.size());
+			string_t cur_id = id.substr(index_0, index_1 - index_0);
+			index_0 = index_1 + 1;
+			if(it->second->type() != Type::Object)
+				return nullptr;
+			auto & cur_object_entries = static_cast<json::Object const *>(it->second.get())->entries();
+			it = cur_object_entries.find(cur_id);
+			if(it == cur_object_entries.end())
+				return nullptr;
+		} 
+		return &(it->second);
+	}
+
+	// C must be a valid json type such as Null, Boolean or String
+	template <class C>
+	C *
+	get(string_t id) noexcept
+	{
+		auto * base_ptr = get(id);
+		if(!base_ptr || base_ptr->get()->type() != CType<C>::value())
+			return nullptr;
+		return static_cast<C *>(base_ptr->get());
+	}
+
+	template <class C>
+	C const *
+	get(string_t id) const noexcept
+	{
+		auto const * base_ptr = get(id);
+		if(!base_ptr || base_ptr->get()->type() != CType<C>::value())
+			return nullptr;
+		return static_cast<C const *>(base_ptr->get());
+	}
+
+	// C must be a valid json type such as Null, Boolean or String
+	template <class C, typename V = C::value_t>
+	V *
+	get_value(string_t id) noexcept
+	{
+		auto * base_ptr = get(id);
+		if(!base_ptr || base_ptr->get()->type() != CType<C>::value())
+			return nullptr;
+		return &static_cast<C *>(base_ptr->get())->value();
+	}
+
+	template <class C, typename V = C::value_t>
+	V const *
+	get_value(string_t id) const noexcept
+	{
+		auto const * base_ptr = get(id);
+		if(!base_ptr || base_ptr->get()->type() != CType<C>::value())
+			return nullptr;
+		return &static_cast<C const *>(base_ptr->get())->value();
+	}
+
 	object_entries_t       & entries()       { return m_entries; }
 	object_entries_t const & entries() const { return m_entries; }
+	value_t                & value()         { return m_entries; }
+	value_t          const & value()   const { return m_entries; }
 
 };
 
