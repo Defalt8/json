@@ -34,7 +34,13 @@
  		  }
  	});
 	
-	// to get a pointer to a certain entry you can use get, get<> or get_value
+    /// To set a value at a certain entry you can use set
+
+	jobject.set("0001.in_stock", 0);
+	jobject.set("0001.vendor", "NYBS");
+	jobject.set("0001.reviews"); // set "0001.reviews" to a Null
+
+	/// To get a pointer to a certain entry you can use get, get<> or get_value
 	
 	jobject.get("0001"); 
 	  // would return a pointer to the base_ptr_t stored with the key "0001"
@@ -129,11 +135,17 @@ static constexpr null_t null {};
 static char const * padding = "   ";
 static char const * newline = "\n";
 
+static inline base_ptr_t make_base_ptr();
 static inline base_ptr_t make_base_ptr(base_ptr_t value_);
+static inline base_ptr_t make_base_ptr(Null value_);
 static inline base_ptr_t make_base_ptr(null_t value_);
+static inline base_ptr_t make_base_ptr(Boolean value_);
 static inline base_ptr_t make_base_ptr(boolean_t value_);
+static inline base_ptr_t make_base_ptr(Integer value_);
 static inline base_ptr_t make_base_ptr(integer_t value_);
+static inline base_ptr_t make_base_ptr(Number value_);
 static inline base_ptr_t make_base_ptr(number_t value_);
+static inline base_ptr_t make_base_ptr(String value_);
 static inline base_ptr_t make_base_ptr(string_t value_);
 static inline base_ptr_t make_base_ptr(char const * value_);
 static inline base_ptr_t make_base_ptr(Array value_);
@@ -170,14 +182,14 @@ enum class Type
 	, Array
 };
 
-template <class C> struct CType { static constexpr Type type() { return Type::Base; } };
-template <> struct CType<Null> { static constexpr Type value()    { return Type::Null; } };
+template <class C> struct CType   { static constexpr Type type()  { return Type::Base; } };
+template <> struct CType<Null>    { static constexpr Type value() { return Type::Null; } };
 template <> struct CType<Boolean> { static constexpr Type value() { return Type::Boolean; } };
 template <> struct CType<Integer> { static constexpr Type value() { return Type::Integer; } };
-template <> struct CType<Number> { static constexpr Type value()  { return Type::Number; } };
-template <> struct CType<String> { static constexpr Type value()  { return Type::String; } };
-template <> struct CType<Object> { static constexpr Type value()  { return Type::Object; } };
-template <> struct CType<Array> { static constexpr Type value()   { return Type::Array; } };
+template <> struct CType<Number>  { static constexpr Type value() { return Type::Number; } };
+template <> struct CType<String>  { static constexpr Type value() { return Type::String; } };
+template <> struct CType<Object>  { static constexpr Type value() { return Type::Object; } };
+template <> struct CType<Array>   { static constexpr Type value() { return Type::Array; } };
 
 class Base
 {
@@ -185,6 +197,9 @@ class Base
 	Base()             = default;
 	Base(Base &&)      = default;
 	Base(Base const &) = delete;
+
+	Base & operator=(Base &&)      = default;
+	Base & operator=(Base const &) = delete;
 
  public:
 	virtual ~Base() = default;
@@ -202,7 +217,12 @@ class Null final : public Base
 	Null(Null &&)      = default;
 	Null(Null const &) = delete;
 	Null(null_t null_) {}
+	
+	Null & operator=(Null &&)      = default;
+	Null & operator=(Null const &) = delete;
+
 	Type type() const override  { return Type::Null; }
+	
 	value_t       value()       { return json::null; }
 	value_t const value() const { return json::null; }
 };
@@ -221,6 +241,10 @@ class Boolean final : public Base
 	Boolean(boolean_t boolean_)
 		: m_boolean { boolean_ }
 	{}
+	
+	Boolean & operator=(Boolean &&)      = default;
+	Boolean & operator=(Boolean const &) = delete;
+
 	Type type() const override { return Type::Boolean; }
 
 	boolean_t const & boolean() const { return m_boolean; }
@@ -243,6 +267,10 @@ class Integer final : public Base
 	Integer(integer_t integer_)
 		: m_integer { integer_ }
 	{}
+	
+	Integer & operator=(Integer &&)      = default;
+	Integer & operator=(Integer const &) = delete;
+	
 	Type type() const override { return Type::Integer; }
 
 	integer_t const & integer() const { return m_integer; }
@@ -265,6 +293,10 @@ class Number final : public Base
 	Number(number_t number_)
 		: m_number { number_ }
 	{}
+	
+	Number & operator=(Number &&)      = default;
+	Number & operator=(Number const &) = delete;
+	
 	Type type() const override { return Type::Number; }
 
 	number_t const & number() const { return m_number; }
@@ -290,6 +322,10 @@ class String final : public Base
 	String(char const * string_)
 		: m_string { string_ }
 	{}
+	
+	String & operator=(String &&)      = default;
+	String & operator=(String const &) = delete;
+	
 	Type type() const override { return Type::String; }
 
 	string_t const & string() const { return m_string; }
@@ -310,6 +346,9 @@ class Array final : public Base
 	~Array() = default;
 	Array(Array &&)      = default;
 	Array(Array const &) = delete;
+
+	Array & operator=(Array &&)      = default;
+	Array & operator=(Array const &) = delete;
 
 	template <size_t size_>
 	Array(array_element_t (&& elements_)[size_])
@@ -350,6 +389,9 @@ class Object final : public Base
 	~Object() = default;
 	Object(Object &&)      = default;
 	Object(Object const &) = delete;
+
+	Object & operator=(Object &&) = default;
+	Object & operator=(Object const &) = delete;
 
 	template <size_t size_>
 	Object(Entry (&& entries_)[size_])
@@ -399,7 +441,6 @@ class Object final : public Base
 		auto it = m_entries.find(root_id);
 		if(it == m_entries.end())
 			return nullptr;
-		// consequently locate the entries with the sub ids
 		while(index_0 < id.size())
 		{
 			index_1 = std::min(id.find('.', index_0), id.size());
@@ -457,6 +498,61 @@ class Object final : public Base
 		return &static_cast<C const *>(base_ptr->get())->value();
 	}
 
+	template <typename... Args>
+	base_ptr_t *
+	set(string_t id, Args &&... args) noexcept
+	{
+		size_t index_0   = 0;
+		size_t index_1   = std::min(id.find('.', 0), id.size());
+		string_t prev_id = id.substr(index_0, index_1 - index_0);
+		index_0 = index_1 + 1;
+		auto it = m_entries.find(prev_id);
+		if(it == m_entries.end())
+		{
+			if(index_0 < id.size())
+				it = m_entries.insert(object_entry_t(prev_id, make_base_ptr(json::Object()))).first;
+			else
+			{
+				it = m_entries.insert(object_entry_t(prev_id, make_base_ptr(std::forward<Args>(args)...))).first;
+				return &(it->second);
+			}
+			if(it == m_entries.end())
+				return nullptr;
+		}
+		json::object_entries_t * cur_object_entries = &m_entries;
+		while(index_0 < id.size())
+		{
+			index_1 = std::min(id.find('.', index_0), id.size());
+			string_t cur_id = id.substr(index_0, index_1 - index_0);
+			index_0 = index_1 + 1;
+			if(it->second->type() != Type::Object)
+				it->second = make_base_ptr(json::Object());
+			cur_object_entries = &static_cast<json::Object *>(it->second.get())->entries();
+			it = cur_object_entries->find(cur_id);
+			if(it == cur_object_entries->end())
+			{
+				if(index_0 < id.size())
+					it = cur_object_entries->insert(object_entry_t(cur_id, make_base_ptr(json::Object()))).first;
+				else
+				{
+					it = cur_object_entries->insert(object_entry_t(cur_id, make_base_ptr(std::forward<Args>(args)...))).first;
+					return &(it->second);
+				}
+				if(it == cur_object_entries->end())
+					return nullptr;
+			}
+			prev_id = cur_id;
+		}
+		it->second = make_base_ptr(std::forward<Args>(args)...);
+		return &(it->second);
+	}
+
+	bool
+	remove(string_t id)
+	{
+		return false;
+	}
+
 	object_entries_t       & entries()       { return m_entries; }
 	object_entries_t const & entries() const { return m_entries; }
 	value_t                & value()         { return m_entries; }
@@ -484,6 +580,7 @@ struct Entry
 
 };
 
+static inline base_ptr_t make_base_ptr()                     { return base_ptr_t(new Null()); }
 static inline base_ptr_t make_base_ptr(base_ptr_t value_)    { return std::move(value_); }
 static inline base_ptr_t make_base_ptr(Null value_)          { return base_ptr_t(new Null(std::move(value_))); }
 static inline base_ptr_t make_base_ptr(null_t value_)        { return base_ptr_t(new Null()); }
