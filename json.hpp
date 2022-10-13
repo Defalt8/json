@@ -2,6 +2,7 @@
 #ifndef JSON_HPP
 #define JSON_HPP
 
+#include <cstdint>
 #include <utility>
 #include <type_traits>
 #include <memory>
@@ -121,8 +122,8 @@ struct Entry;
 
 using null_t     = struct {};
 using boolean_t  = bool;
-using integer_t  = int;
-using number_t   = float;
+using integer_t  = int64_t;
+using number_t   = double;
 using string_t   = std::string;
 using base_ptr_t = std::unique_ptr<json::Base>;
 using array_element_t   = base_ptr_t;
@@ -160,10 +161,10 @@ static std::ostream & print(std::ostream & ost, json::Array const & jarray, size
 static std::ostream & print(std::ostream & ost, json::Object const & jobject, size_t depth_ = 0);
 static std::ostream & print(std::ostream & ost, json::Base const & jbase, size_t depth_ = 0);
 
-static std::istream & parse(std::istream & ist, json::Null & jnull, char first_char, bool first_char_read = false) noexcept(false);
-static std::istream & parse(std::istream & ist, json::Boolean & jboolean, char first_char, bool first_char_read = false) noexcept(false);
-static std::istream & parse(std::istream & ist, json::Integer & jinteger, char first_char, bool first_char_read = false) noexcept(false);
-static std::istream & parse(std::istream & ist, json::Number & jnumber, char first_char, bool first_char_read = false) noexcept(false);
+static std::istream & parse(std::istream & ist, json::Null & jnull, char first_char = '\0', bool first_char_read = false) noexcept(false);
+static std::istream & parse(std::istream & ist, json::Boolean & jboolean, char first_char = '\0', bool first_char_read = false) noexcept(false);
+static std::istream & parse(std::istream & ist, json::Integer & jinteger, char first_char = '\0', bool first_char_read = false) noexcept(false);
+static std::istream & parse(std::istream & ist, json::Number & jnumber, char first_char = '\0', bool first_char_read = false) noexcept(false);
 static std::istream & parse(std::istream & ist, json::String & jstring, bool skip_opening_check = false) noexcept(false);
 static std::istream & parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false);
 static std::istream & parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(false);
@@ -182,14 +183,14 @@ enum class Type
 	, Array
 };
 
-template <class C> struct CType   { static constexpr Type type()  { return Type::Base; } };
-template <> struct CType<Null>    { static constexpr Type value() { return Type::Null; } };
-template <> struct CType<Boolean> { static constexpr Type value() { return Type::Boolean; } };
-template <> struct CType<Integer> { static constexpr Type value() { return Type::Integer; } };
-template <> struct CType<Number>  { static constexpr Type value() { return Type::Number; } };
-template <> struct CType<String>  { static constexpr Type value() { return Type::String; } };
-template <> struct CType<Object>  { static constexpr Type value() { return Type::Object; } };
-template <> struct CType<Array>   { static constexpr Type value() { return Type::Array; } };
+template <class C> struct CType   { static constexpr Type value = Type::Base; };
+template <> struct CType<Null>    { static constexpr Type value = Type::Null; };
+template <> struct CType<Boolean> { static constexpr Type value = Type::Boolean; };
+template <> struct CType<Integer> { static constexpr Type value = Type::Integer; };
+template <> struct CType<Number>  { static constexpr Type value = Type::Number; };
+template <> struct CType<String>  { static constexpr Type value = Type::String; };
+template <> struct CType<Object>  { static constexpr Type value = Type::Object; };
+template <> struct CType<Array>   { static constexpr Type value = Type::Array; };
 
 class Base
 {
@@ -462,7 +463,7 @@ class Object final : public Base
 	get(string_t id) noexcept
 	{
 		auto * base_ptr = get(id);
-		if(!base_ptr || base_ptr->get()->type() != CType<C>::value())
+		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
 			return nullptr;
 		return static_cast<C *>(base_ptr->get());
 	}
@@ -472,7 +473,7 @@ class Object final : public Base
 	get(string_t id) const noexcept
 	{
 		auto const * base_ptr = get(id);
-		if(!base_ptr || base_ptr->get()->type() != CType<C>::value())
+		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
 			return nullptr;
 		return static_cast<C const *>(base_ptr->get());
 	}
@@ -483,7 +484,7 @@ class Object final : public Base
 	get_value(string_t id) noexcept
 	{
 		auto * base_ptr = get(id);
-		if(!base_ptr || base_ptr->get()->type() != CType<C>::value())
+		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
 			return nullptr;
 		return &static_cast<C *>(base_ptr->get())->value();
 	}
@@ -493,7 +494,7 @@ class Object final : public Base
 	get_value(string_t id) const noexcept
 	{
 		auto const * base_ptr = get(id);
-		if(!base_ptr || base_ptr->get()->type() != CType<C>::value())
+		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
 			return nullptr;
 		return &static_cast<C const *>(base_ptr->get())->value();
 	}
@@ -773,6 +774,12 @@ _skip_spaces(std::istream & ist, char & ch, bool check_current_char = false)
 static std::istream &
 parse(std::istream & ist, json::Null & jnull, char first_char, bool first_char_read) noexcept(false)
 {
+	if((first_char_read && std::isspace(first_char)) || !first_char_read)
+	{
+		do ist.read(&first_char, 1); 
+		while(std::isspace(first_char));
+		first_char_read = true;
+	}
 	char buffer[5] { first_char, '\0', '\0', '\0', '\0' };
 	if(first_char_read)
 		ist.read(&buffer[1], 3);
@@ -786,12 +793,13 @@ parse(std::istream & ist, json::Null & jnull, char first_char, bool first_char_r
 static std::istream &
 parse(std::istream & ist, json::Boolean & jboolean, char first_char, bool first_char_read) noexcept(false)
 {
-	char buffer[6] { first_char, '\0', '\0', '\0', '\0', '\0' };
-	if(!first_char_read)
+	if((first_char_read && std::isspace(first_char)) || !first_char_read)
 	{
-		ist.read(&buffer[0], 1);
-		first_char = buffer[0];
+		do ist.read(&first_char, 1); 
+		while(std::isspace(first_char));
+		first_char_read = true;
 	}
+	char buffer[6] { first_char, '\0', '\0', '\0', '\0', '\0' };
 	if(first_char == 't')
 	{
 		ist.read(&buffer[1], 3);
@@ -814,12 +822,145 @@ parse(std::istream & ist, json::Boolean & jboolean, char first_char, bool first_
 static std::istream &
 parse(std::istream & ist, json::Integer & jinteger, char first_char, bool first_char_read) noexcept(false)
 {
+	if((first_char_read && std::isspace(first_char)) || !first_char_read)
+	{
+		do ist.read(&first_char, 1); 
+		while(std::isspace(first_char));
+		first_char_read = true;
+	}
+	char buffer[16] { '\0' };
+	char * it    = &buffer[0];
+	char * last_ = &buffer[std::size(buffer) - 1];
+	bool reading_first_char = true;
+	bool sign_              = true;
+	bool continue_          = true;
+	for(; continue_ && it < last_; ++it)
+	{
+		char ch;
+		if(first_char_read)
+		{
+			ch = first_char;
+			first_char_read = false;
+		}
+		else
+		{
+			ist.read(&ch, 1);
+			if(ist.eof())
+			{
+				continue_ = false;
+				break;
+			}
+		}
+		switch(ch)
+		{
+			case '0':
+			case '1':
+			case '2':
+			case '3':
+			case '4':
+			case '5':
+			case '6':
+			case '7':
+			case '8':
+			case '9':
+				*it = ch;
+				if(reading_first_char)
+					reading_first_char = false;
+				break;
+			case '+':
+			case '-':
+				if(reading_first_char)
+				{
+					*it = ch;
+					sign_ = true;
+					reading_first_char = false;
+					break;
+				}
+			default:
+				continue_ = false;
+				break;
+		}
+	}
+	*it = '\0';
+	jinteger.integer() = integer_t(std::atoll(buffer));
 	return ist;
 }
 
 static std::istream &
 parse(std::istream & ist, json::Number & jnumber, char first_char, bool first_char_read) noexcept(false)
 {
+	if((first_char_read && std::isspace(first_char)) || !first_char_read)
+	{
+		do ist.read(&first_char, 1); 
+		while(std::isspace(first_char));
+		first_char_read = true;
+	}
+	char buffer[40] { '\0' };
+	char * it    = &buffer[0];
+	char * last_ = &buffer[std::size(buffer) - 1];
+	bool reading_first_char = true;
+	bool sign_              = true;
+	bool decimal_point_     = false;
+	bool continue_          = true;
+	for(; it < last_; ++it)
+	{
+		char ch;
+		if(first_char_read)
+		{
+			ch = first_char;
+			first_char_read = false;
+		}
+		else
+		{
+			ist.read(&ch, 1);
+			if(ist.eof())
+			{
+				continue_ = false;
+				break;
+			}
+		}
+		switch(ch)
+		{
+			case '.':
+				if(!decimal_point_)
+					decimal_point_ = true;
+				else
+				{
+					continue_ = false;
+					break;
+				}
+			case '0':
+			case '1':
+			case '2':
+			case '3':
+			case '4':
+			case '5':
+			case '6':
+			case '7':
+			case '8':
+			case '9':
+				*it = ch;
+				if(reading_first_char)
+					reading_first_char = false;
+				break;
+			case '+':
+			case '-':
+				if(reading_first_char)
+				{
+					*it = ch;
+					sign_ = true;
+					reading_first_char = false;
+					break;
+				}
+			default:
+				continue_ = false;
+				break;
+		}
+		if(!continue_)
+			break;
+	}
+	*it = '\0';
+	jnumber.number() = number_t(std::atof(buffer));
 	return ist;
 }
 
@@ -964,7 +1105,7 @@ parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
 			if(decimal_points > 0)
 				jentry.value = make_base_ptr(std::atof(buffer.c_str()));
 			else
-				jentry.value = make_base_ptr(std::atoi(buffer.c_str()));
+				jentry.value = make_base_ptr(std::atoll(buffer.c_str()));
 		}
 		else
 			throw std::runtime_error("json::parse: invalid object entry value token.");
@@ -1075,7 +1216,7 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 			if(decimal_points > 0)
 				jelement = make_base_ptr(std::atof(buffer.c_str()));
 			else
-				jelement = make_base_ptr(std::atoi(buffer.c_str()));
+				jelement = make_base_ptr(std::atoll(buffer.c_str()));
 		}
 		else
 			throw std::runtime_error("json::parse: invalid array element value token.");
@@ -1142,6 +1283,21 @@ parse(std::istream & ist, json::Object & jobject, bool skip_opening_check) noexc
 	}
 	return ist;
 }
+
+static inline std::istream &
+operator>>(std::istream & ist, json::Null & jnull) { return json::parse(ist, jnull, '\0'); }
+
+static inline std::istream &
+operator>>(std::istream & ist, json::Boolean & jboolean) { return json::parse(ist, jboolean, '\0'); }
+
+static inline std::istream &
+operator>>(std::istream & ist, json::Integer & jinteger) { return json::parse(ist, jinteger, '\0'); }
+
+static inline std::istream &
+operator>>(std::istream & ist, json::Number & jnumber) { return json::parse(ist, jnumber, '\0'); }
+
+static inline std::istream &
+operator>>(std::istream & ist, json::Array & jarray) { return json::parse(ist, jarray); }
 
 static inline std::istream &
 operator>>(std::istream & ist, json::Object & jobject) { return json::parse(ist, jobject); }
