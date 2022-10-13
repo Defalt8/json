@@ -35,11 +35,18 @@
  		  }
  	});
 	
-    /// To set a value at a certain entry you can use set
+    /// To set a value at a certain entry you can use set and set_safe
+	// NOTE: this overrides any parent types that are not Objects 
+	//       thus replacing them with a new Object.
 
 	jobject.set("0001.in_stock", 0);
 	jobject.set("0001.vendor", "NYBS");
 	jobject.set("0001.reviews"); // set "0001.reviews" to a Null
+
+	jobject.set_safe("0001.vendor.address", "Nothing ave, Utopia"); 
+	// would not set because "0001.vendor" is not an Object.
+	jobject.set("0001.vendor.address", "Nothing ave, Utopia"); 
+	// would override "0001.vendor" with a new Object and insert "address" in it.
 
 	/// To get a pointer to a certain entry you can use get, get<> or get_value
 	
@@ -56,6 +63,10 @@
 	jobject.get_value<json::Number>("0001.price"); 
 	  // would return a pointer to the value of the json::Number stored at "0001"->"price".
 	  // It would return nullptr if the entry is not found or it is of a different type.
+
+	/// to remove you can use remove or erase.
+	jobject.remove("0001.vendor");
+	jobject.erase("0001.reviews");
 
 	// you can modify these two before printing
 	json::newline = ""; // default is "\n"
@@ -204,7 +215,7 @@ class Base
 
  public:
 	virtual ~Base() = default;
-	virtual Type type() const = 0;
+	virtual Type type() const noexcept = 0;
 
 };
 
@@ -222,10 +233,12 @@ class Null final : public Base
 	Null & operator=(Null &&)      = default;
 	Null & operator=(Null const &) = delete;
 
-	Type type() const override  { return Type::Null; }
+	Type type() const noexcept override  { return Type::Null; }
 	
-	value_t       value()       { return json::null; }
-	value_t const value() const { return json::null; }
+	value_t       null()        noexcept { return json::null; }
+	value_t const null()  const noexcept { return json::null; }
+	value_t       value()       noexcept { return json::null; }
+	value_t const value() const noexcept { return json::null; }
 };
 
 class Boolean final : public Base 
@@ -246,12 +259,12 @@ class Boolean final : public Base
 	Boolean & operator=(Boolean &&)      = default;
 	Boolean & operator=(Boolean const &) = delete;
 
-	Type type() const override { return Type::Boolean; }
+	Type type() const noexcept override { return Type::Boolean; }
 
-	boolean_t const & boolean() const { return m_boolean; }
-	boolean_t       & boolean()       { return m_boolean; }
-	value_t         & value()         { return m_boolean; }
-	value_t   const & value()   const { return m_boolean; }
+	boolean_t       & boolean()       noexcept { return m_boolean; }
+	boolean_t const & boolean() const noexcept { return m_boolean; }
+	value_t         & value()         noexcept { return m_boolean; }
+	value_t   const & value()   const noexcept { return m_boolean; }
 };
 
 class Integer final : public Base 
@@ -272,12 +285,12 @@ class Integer final : public Base
 	Integer & operator=(Integer &&)      = default;
 	Integer & operator=(Integer const &) = delete;
 	
-	Type type() const override { return Type::Integer; }
+	Type type() const noexcept override { return Type::Integer; }
 
-	integer_t const & integer() const { return m_integer; }
-	integer_t       & integer()       { return m_integer; }
-	value_t         & value()         { return m_integer; }
-	value_t   const & value()   const { return m_integer; }
+	integer_t       & integer()       noexcept { return m_integer; }
+	integer_t const & integer() const noexcept { return m_integer; }
+	value_t         & value()         noexcept { return m_integer; }
+	value_t   const & value()   const noexcept { return m_integer; }
 };
 
 class Number final : public Base 
@@ -298,12 +311,12 @@ class Number final : public Base
 	Number & operator=(Number &&)      = default;
 	Number & operator=(Number const &) = delete;
 	
-	Type type() const override { return Type::Number; }
+	Type type() const noexcept override { return Type::Number; }
 
-	number_t const & number() const { return m_number; }
-	number_t       & number()       { return m_number; }
-	value_t        & value()        { return m_number; }
-	value_t  const & value()  const { return m_number; }
+	number_t       & number()       noexcept { return m_number; }
+	number_t const & number() const noexcept { return m_number; }
+	value_t        & value()        noexcept { return m_number; }
+	value_t  const & value()  const noexcept { return m_number; }
 };
 
 class String final : public Base 
@@ -327,12 +340,12 @@ class String final : public Base
 	String & operator=(String &&)      = default;
 	String & operator=(String const &) = delete;
 	
-	Type type() const override { return Type::String; }
+	Type type() const noexcept override { return Type::String; }
 
-	string_t const & string() const { return m_string; }
-	string_t       & string()       { return m_string; }
-	value_t        & value()        { return m_string; }
-	value_t  const & value()  const { return m_string; }
+	string_t       & string()       noexcept { return m_string; }
+	string_t const & string() const noexcept { return m_string; }
+	value_t        & value()        noexcept { return m_string; }
+	value_t  const & value()  const noexcept { return m_string; }
 
 };
 
@@ -370,18 +383,71 @@ class Array final : public Base
 		: Array({ make_base_ptr(std::forward<V0>(v0)), make_base_ptr(std::forward<Args>(args))... })
 	{}
 
-	Type type() const override { return Type::Array; }
+	Type type() const noexcept override { return Type::Array; }
 
-	array_elements_t       & elements()       { return m_elements; }
-	array_elements_t const & elements() const { return m_elements; }
-	value_t                & value()          { return m_elements; }
-	value_t          const & value()    const { return m_elements; }
+	array_elements_t       & elements()       noexcept { return m_elements; }
+	array_elements_t const & elements() const noexcept { return m_elements; }
+	value_t                & value()          noexcept { return m_elements; }
+	value_t          const & value()    const noexcept { return m_elements; }
 
 };
 
 class Object final : public Base
 {
 	object_entries_t m_entries {};
+
+	template <typename... Args>
+	base_ptr_t *
+	_set(bool override_, string_t id, Args &&... args) noexcept
+	{
+		size_t index_0   = 0;
+		size_t index_1   = std::min(id.find('.', 0), id.size());
+		string_t root_id = id.substr(index_0, index_1 - index_0);
+		index_0 = index_1 + 1;
+		auto it = m_entries.find(root_id);
+		if(it == m_entries.end())
+		{
+			if(index_0 < id.size())
+				it = m_entries.insert(object_entry_t(root_id, make_base_ptr(json::Object()))).first;
+			else
+			{
+				it = m_entries.insert(object_entry_t(root_id, make_base_ptr(std::forward<Args>(args)...))).first;
+				return &(it->second);
+			}
+			if(it == m_entries.end())
+				return nullptr;
+		}
+		json::object_entries_t * cur_object_entries = &m_entries;
+		while(index_0 < id.size())
+		{
+			index_1 = std::min(id.find('.', index_0), id.size());
+			string_t cur_id = id.substr(index_0, index_1 - index_0);
+			index_0 = index_1 + 1;
+			if(it->second->type() != Type::Object)
+			{
+				if(override_)
+					it->second = make_base_ptr(json::Object());
+				else
+					return nullptr;
+			}
+			cur_object_entries = &static_cast<json::Object *>(it->second.get())->entries();
+			it = cur_object_entries->find(cur_id);
+			if(it == cur_object_entries->end())
+			{
+				if(index_0 < id.size())
+					it = cur_object_entries->insert(object_entry_t(cur_id, make_base_ptr(json::Object()))).first;
+				else
+				{
+					it = cur_object_entries->insert(object_entry_t(cur_id, make_base_ptr(std::forward<Args>(args)...))).first;
+					return &(it->second);
+				}
+				if(it == cur_object_entries->end())
+					return nullptr;
+			}
+		}
+		it->second = make_base_ptr(std::forward<Args>(args)...);
+		return &(it->second);
+	}
 
  public:
 	using value_t = object_entries_t;
@@ -401,7 +467,7 @@ class Object final : public Base
 			m_entries.insert(object_entry_t(entry_.key, std::move(entry_.value)));
 	}
 
-	Type type() const override { return Type::Object; }
+	Type type() const noexcept override { return Type::Object; }
 
 	// id must be an aggregate of object keys separated by '.'
 	// get("user.name") would look for the object entry with the key 'name' 
@@ -499,65 +565,57 @@ class Object final : public Base
 		return &static_cast<C const *>(base_ptr->get())->value();
 	}
 
+	// Caution: overrides parents that are not of type Object.
 	template <typename... Args>
-	base_ptr_t *
+	inline base_ptr_t *
 	set(string_t id, Args &&... args) noexcept
 	{
-		size_t index_0   = 0;
-		size_t index_1   = std::min(id.find('.', 0), id.size());
-		string_t prev_id = id.substr(index_0, index_1 - index_0);
-		index_0 = index_1 + 1;
-		auto it = m_entries.find(prev_id);
-		if(it == m_entries.end())
-		{
-			if(index_0 < id.size())
-				it = m_entries.insert(object_entry_t(prev_id, make_base_ptr(json::Object()))).first;
-			else
-			{
-				it = m_entries.insert(object_entry_t(prev_id, make_base_ptr(std::forward<Args>(args)...))).first;
-				return &(it->second);
-			}
-			if(it == m_entries.end())
-				return nullptr;
-		}
-		json::object_entries_t * cur_object_entries = &m_entries;
-		while(index_0 < id.size())
-		{
-			index_1 = std::min(id.find('.', index_0), id.size());
-			string_t cur_id = id.substr(index_0, index_1 - index_0);
-			index_0 = index_1 + 1;
-			if(it->second->type() != Type::Object)
-				it->second = make_base_ptr(json::Object());
-			cur_object_entries = &static_cast<json::Object *>(it->second.get())->entries();
-			it = cur_object_entries->find(cur_id);
-			if(it == cur_object_entries->end())
-			{
-				if(index_0 < id.size())
-					it = cur_object_entries->insert(object_entry_t(cur_id, make_base_ptr(json::Object()))).first;
-				else
-				{
-					it = cur_object_entries->insert(object_entry_t(cur_id, make_base_ptr(std::forward<Args>(args)...))).first;
-					return &(it->second);
-				}
-				if(it == cur_object_entries->end())
-					return nullptr;
-			}
-			prev_id = cur_id;
-		}
-		it->second = make_base_ptr(std::forward<Args>(args)...);
-		return &(it->second);
+		return _set(true, std::move(id), std::forward<Args>(args)...);
+	}
+
+	// no overriding parents that are not of type Object.
+	template <typename... Args>
+	inline base_ptr_t *
+	set_safe(string_t id, Args &&... args) noexcept
+	{
+		return _set(false, std::move(id), std::forward<Args>(args)...);
 	}
 
 	bool
-	remove(string_t id)
+	remove(string_t id) noexcept
 	{
-		return false;
+		size_t index_0   = 0;
+		size_t index_1   = std::min(id.find('.', 0), id.size());
+		string_t root_id = id.substr(index_0, index_1 - index_0);
+		index_0 = index_1 + 1;
+		auto it = m_entries.find(root_id);
+		if(it == m_entries.end())
+			return false;
+		object_entries_t * cur_object_entries = &m_entries;
+		string_t cur_id = root_id;
+		while(index_0 < id.size())
+		{
+			index_1 = std::min(id.find('.', index_0), id.size());
+			cur_id = id.substr(index_0, index_1 - index_0);
+			index_0 = index_1 + 1;
+			if(it->second->type() != Type::Object)
+				return false;
+			cur_object_entries = &static_cast<json::Object *>(it->second.get())->entries();
+			it = cur_object_entries->find(cur_id);
+			if(it == cur_object_entries->end())
+				return false;
+		} 
+		cur_object_entries->erase(it);
+		return true;
 	}
 
-	object_entries_t       & entries()       { return m_entries; }
-	object_entries_t const & entries() const { return m_entries; }
-	value_t                & value()         { return m_entries; }
-	value_t          const & value()   const { return m_entries; }
+	// alias for remove
+	inline bool erase(string_t id) noexcept { return remove(std::move(id)); }
+
+	object_entries_t       & entries()       noexcept { return m_entries; }
+	object_entries_t const & entries() const noexcept { return m_entries; }
+	value_t                & value()         noexcept { return m_entries; }
+	value_t          const & value()   const noexcept { return m_entries; }
 
 };
 
