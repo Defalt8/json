@@ -70,8 +70,10 @@
 	jobject.erase("0001.reviews");
 
 	// you can modify these two before printing
-	json::newline = ""; // default is "\n"
-	json::padding = ""; // default is "   "
+	// setting all these to nullptr will print tightly packed in a single line.
+	json::value_spacing = nullptr; // default is " "
+	json::newline = nullptr; // default is "\n"
+	json::padding = nullptr; // default is "   "
 	
 
 	// output to stdout
@@ -281,6 +283,7 @@ using object_entry_t = std::pair<string_t,base_ptr_t>;
 using object_entries_t = std::unordered_map<string_t,base_ptr_t>;
 using object_entries_iterator_t = object_entries_t::iterator;
 static constexpr null_t null {};
+static char const * value_spacing = " ";
 static char const * padding = "   ";
 static char const * newline = "\n";
 
@@ -797,11 +800,19 @@ static inline base_ptr_t make_base_ptr(char * value_)        { return base_ptr_t
 static inline base_ptr_t make_base_ptr(Array value_)         { return base_ptr_t(new Array(std::move(value_))); }
 static inline base_ptr_t make_base_ptr(Object value_)        { return base_ptr_t(new Object(std::move(value_))); }
 
-static void 
+static inline void 
 print_padding(std::ostream & ost, size_t depth_)
 {
-	for(size_t k = 0; k < depth_; ++k)
-		ost << padding;
+	if(padding)
+		for(size_t k = 0; k < depth_; ++k)
+			ost << padding;
+}
+
+static inline void 
+print_newline(std::ostream & ost)
+{
+	if(newline)
+		ost << newline;
 }
 
 static std::ostream &
@@ -845,7 +856,9 @@ print(std::ostream & ost, json::Array const & jarray, size_t depth_)
 	size_t size_ = array_elements.size();
 	for(auto const & element : array_elements)
 	{
-		ost << newline;
+		if(!element)
+			continue;
+		print_newline(ost);
 		switch(element->type())
 		{
 			case Type::Array:
@@ -861,8 +874,9 @@ print(std::ostream & ost, json::Array const & jarray, size_t depth_)
 		++i;
 	}
 	if(i > 0)
-		ost << newline;
-	print_padding(ost, depth_);
+		print_newline(ost);
+	if(size_ > 0)
+		print_padding(ost, depth_);
 	ost << ']';
 	return ost;
 }
@@ -877,15 +891,17 @@ print(std::ostream & ost, json::Object const & jobject, size_t depth_)
 	size_t size_ = jobject_entries.size();
 	for(auto const & entry : jobject_entries)
 	{
-		ost << newline;
+		print_newline(ost);
 		print_padding(ost, depth_ + 1);
-		ost << '"' << entry.first << "\": ";
+		ost << '"' << entry.first << "\":";
+		if(value_spacing)
+			ost << value_spacing;
 		auto const & value = entry.second;
 		switch(value->type())
 		{
 			case Type::Array:
 			case Type::Object:
-				ost << newline;
+				print_newline(ost);
 				break;
 			default:
 				break;
@@ -896,8 +912,9 @@ print(std::ostream & ost, json::Object const & jobject, size_t depth_)
 		++i;
 	}
 	if(i > 0)
-		ost << newline;
-	print_padding(ost, depth_);
+		print_newline(ost);
+	if(size_ > 0)
+		print_padding(ost, depth_);
 	ost << '}';
 	return ost;
 }
@@ -1174,10 +1191,15 @@ parse(std::istream & ist, json::String & jstring, bool skip_opening_check) noexc
 	// read string until end quotes are reached
 	std::string buffer;
 	ist.read(&ch, 1);
-	while(ch != '"')
+	bool escape_ = false;
+	while((escape_ ? true : ch != '"'))
 	{
 		if(ist.eof())
 			throw std::runtime_error("json::parse: end of stream.");
+		if(ch == '\\' && !escape_)
+			escape_ = true;
+		else if(escape_)
+			escape_ = false;
 		buffer += ch;
 		ist.read(&ch, 1);
 	}
@@ -1332,7 +1354,7 @@ parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
 			else
 				jentry.value = make_base_ptr(std::atoll(buffer.c_str()));
 		}
-		else
+		else if(ch != '}')
 			throw std::runtime_error("json::parse: invalid object entry value token.");
 	}
 	return ist;
@@ -1443,7 +1465,7 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 			else
 				jelement = make_base_ptr(std::atoll(buffer.c_str()));
 		}
-		else
+		else if(ch != ']')
 			throw std::runtime_error("json::parse: invalid array element value token.");
 	}
 	return ist;
@@ -1461,12 +1483,12 @@ parse(std::istream & ist, json::Array & jarray, bool skip_opening_check) noexcep
 		if(ch != '[')
 			throw std::runtime_error("json::parse: missing opening square bracket for array.");
 	}
-	// read "key":value pairs
 	while(!ist.eof())
 	{
 		array_element_t jelement;
 		parse(ist, jelement, ch);
-		jarray.elements().push_back(std::move(jelement));
+		if(jelement)
+			jarray.elements().push_back(std::move(jelement));
 		if(!_skip_spaces(ist, ch, true))
 			throw std::runtime_error("json::parse: end of stream.");
 		if(ch == ',')
@@ -1484,13 +1506,17 @@ parse(std::istream & ist, json::Object & jobject, bool skip_opening_check) noexc
 {
 	char ch;
 	// skip white-spaces until '{' is reached
+	if(!_skip_spaces(ist, ch))
+		throw std::runtime_error("json::parse: end of stream.");
 	if(!skip_opening_check)
 	{
-		if(!_skip_spaces(ist, ch))
-			throw std::runtime_error("json::parse: end of stream.");
 		if(ch != '{')
 			throw std::runtime_error("json::parse: missing opening brace for object.");
 	}
+	if(ch == '}')
+		return ist;
+	else if(ch == '"')
+		ist.putback('"');
 	// read "key":value pairs
 	while(!ist.eof())
 	{
