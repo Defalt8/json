@@ -10,6 +10,7 @@
 #include <list>
 #include <unordered_map>
 #include <iosfwd>
+#include <iomanip>
 
 /**
  * @brief Single-header library for simple JSON parsing, printing and manipulation.
@@ -131,9 +132,145 @@ class Array;
 class Object;
 struct Entry;
 
+union uInt
+{ 
+	int64_t i64 = 0; 
+	int32_t i32;     
+	int16_t i16;     
+	int8_t  i8;      
+	uint64_t u64; 
+	uint32_t u32; 
+	uint16_t u16; 
+	uint8_t  u8; 
+
+	constexpr uInt()             = default;
+	constexpr uInt(uInt &&)      = default;
+	constexpr uInt(uInt const &) = default;
+
+	uInt & operator=(uInt &&)      = default;
+	uInt & operator=(uInt const &) = default;
+
+	constexpr uInt(int64_t i64_)  : i64 { i64_ } {}
+	constexpr uInt(int32_t i32_)  : i32 { i32_ } {}
+	constexpr uInt(int16_t i16_)  : i16 { i16_ } {}
+	constexpr uInt(int8_t  i8_)   : i8  { i8_  } {}
+	constexpr uInt(uint64_t u64_) : u64 { u64_ } {}
+	constexpr uInt(uint32_t u32_) : u32 { u32_ } {}
+	constexpr uInt(uint16_t u16_) : u16 { u16_ } {}
+	constexpr uInt(uint8_t  u8_)  : u8  { u8_  } {}
+
+	constexpr operator int64_t &  () noexcept { return i64; }
+	constexpr operator int32_t &  () noexcept { return i32; }
+	constexpr operator int16_t &  () noexcept { return i16; }
+	constexpr operator int8_t  &  () noexcept { return i8;  }
+	constexpr operator uint64_t & () noexcept { return u64; }
+	constexpr operator uint32_t & () noexcept { return u32; }
+	constexpr operator uint16_t & () noexcept { return u16; }
+	constexpr operator uint8_t  & () noexcept { return u8;  }
+
+	constexpr operator int64_t () const noexcept { return i64; }
+	constexpr operator int32_t () const noexcept { return i32; }
+	constexpr operator int16_t () const noexcept { return i16; }
+	constexpr operator int8_t  () const noexcept { return i8;  }
+	constexpr operator uint64_t() const noexcept { return u64; }
+	constexpr operator uint32_t() const noexcept { return u32; }
+	constexpr operator uint16_t() const noexcept { return u16; }
+	constexpr operator uint8_t () const noexcept { return u8;  }
+
+};
+
+enum class IntType
+{
+	  Int64 = 0
+	, Int32
+	, Int16
+	, Int8
+	, UInt64
+	, UInt32
+	, UInt16
+	, UInt8
+};
+
+struct Int
+{
+	uInt    u    {};
+	IntType type {};
+	
+	constexpr Int()            = default;
+	constexpr Int(Int &&)      = default;
+	constexpr Int(Int const &) = default;
+
+	Int & operator=(Int &&)      = default;
+	Int & operator=(Int const &) = default;
+
+	constexpr Int(int64_t i64_)  : u { i64_ }, type { IntType::Int64 }  {}
+	constexpr Int(int32_t i32_)  : u { i32_ }, type { IntType::Int32 }  {}
+	constexpr Int(int16_t i16_)  : u { i16_ }, type { IntType::Int16 }  {}
+	constexpr Int(int8_t  i8_)   : u { i8_  }, type { IntType::Int8  }  {}
+	constexpr Int(uint64_t u64_) : u { u64_ }, type { IntType::UInt64 } {}
+	constexpr Int(uint32_t u32_) : u { u32_ }, type { IntType::UInt32 } {}
+	constexpr Int(uint16_t u16_) : u { u16_ }, type { IntType::UInt16 } {}
+	constexpr Int(uint8_t  u8_)  : u { u8_  }, type { IntType::UInt8  } {}
+
+	constexpr int64_t  & i64() noexcept { return u.i64; }
+	constexpr int32_t  & i32() noexcept { return u.i32; }
+	constexpr int16_t  & i16() noexcept { return u.i16; }
+	constexpr int8_t   & i8 () noexcept { return u.i8;  }
+	constexpr uint64_t & u64() noexcept { return u.u64; }
+	constexpr uint32_t & u32() noexcept { return u.u32; }
+	constexpr uint16_t & u16() noexcept { return u.u16; }
+	constexpr uint8_t  & u8 () noexcept { return u.u8;  }
+
+	constexpr int64_t  i64() const noexcept { return u.i64; }
+	constexpr int32_t  i32() const noexcept { return u.i32; }
+	constexpr int16_t  i16() const noexcept { return u.i16; }
+	constexpr int8_t   i8 () const noexcept { return u.i8;  }
+	constexpr uint64_t u64() const noexcept { return u.u64; }
+	constexpr uint32_t u32() const noexcept { return u.u32; }
+	constexpr uint16_t u16() const noexcept { return u.u16; }
+	constexpr uint8_t  u8 () const noexcept { return u.u8;  }
+
+	constexpr operator int64_t &  () noexcept { return u.i64; }
+	constexpr operator int32_t &  () noexcept { return u.i32; }
+	constexpr operator int16_t &  () noexcept { return u.i16; }
+	constexpr operator int8_t  &  () noexcept { return u.i8;  }
+	constexpr operator uint64_t & () noexcept { return u.u64; }
+	constexpr operator uint32_t & () noexcept { return u.u32; }
+	constexpr operator uint16_t & () noexcept { return u.u16; }
+	constexpr operator uint8_t  & () noexcept { return u.u8;  }
+
+	constexpr operator int64_t () const noexcept { return u.i64; }
+	constexpr operator int32_t () const noexcept { return u.i32; }
+	constexpr operator int16_t () const noexcept { return u.i16; }
+	constexpr operator int8_t  () const noexcept { return u.i8;  }
+	constexpr operator uint64_t() const noexcept { return u.u64; }
+	constexpr operator uint32_t() const noexcept { return u.u32; }
+	constexpr operator uint16_t() const noexcept { return u.u16; }
+	constexpr operator uint8_t () const noexcept { return u.u8;  }
+
+};
+
+static std::ostream &
+operator<<(std::ostream & ost, Int const & i) 
+{
+	switch(i.type)
+	{
+		default:
+		case IntType::Int64:   ost << i.i64(); break;
+		case IntType::Int32:   ost << i.i32(); break;
+		case IntType::Int16:   ost << i.i16(); break;
+		case IntType::Int8:    ost << uint16_t(i.i8());  break;
+		case IntType::UInt64:  ost << i.u64(); break;
+		case IntType::UInt32:  ost << i.u32(); break;
+		case IntType::UInt16:  ost << i.u16(); break;
+		case IntType::UInt8:   ost << uint16_t(i.u8());  break;
+	}
+	return ost;
+}
+
 using null_t     = struct {};
 using boolean_t  = bool;
-using integer_t  = int64_t;
+using integer_t  = Int; 
 using number_t   = double;
 using string_t   = std::string;
 using base_ptr_t = std::unique_ptr<json::Base>;
@@ -688,7 +825,8 @@ print(std::ostream & ost, json::Integer const & jinteger)
 static std::ostream &
 print(std::ostream & ost, json::Number const & jnumber)
 {
-	return ost << jnumber.number();
+	return ost << std::setprecision(13) << std::fixed << jnumber.number() 
+		<< std::setprecision(ost.precision()) << std::defaultfloat;
 }
 
 static std::ostream &
@@ -1110,12 +1248,28 @@ parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
 			size_t negative_signs = ch == '-' ? 1 : 0;
 			string_t buffer;
 			buffer += ch;
+			auto digits = 0;
+			bool scientific_ = false;
+			bool scientific_sign_ = false;
 			bool continue_ = true;
 			while(continue_)
 			{
 				if(ist.eof())
 					throw std::runtime_error("json::parse: end of stream.");
 				ist.read(&ch, 1);
+				if(ch == 'e')
+				{
+					if(digits == 0)
+						throw std::runtime_error("json::parse: At least one digit required before 'e'.");
+					else if(!scientific_)
+					{
+						buffer += ch;
+						scientific_ = true;
+						continue;
+					}
+					else
+						break;
+				}
 				switch(ch)
 				{
 					case '.':
@@ -1132,13 +1286,26 @@ parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
 					case '7':
 					case '8':
 					case '9':
+						++digits;
 						buffer += ch;
 						break;
 					case '+': 
-						throw std::runtime_error("json::parse: Invalid positive sign in numeric value.");
+						if(scientific_ && !scientific_sign_)
+						{
+							scientific_sign_ = true;
+							buffer += ch;
+						}
+						else
+							throw std::runtime_error("json::parse: Invalid positive sign in numeric value.");
 						break;
 					case '-':
-						throw std::runtime_error("json::parse: Invalid negative sign in numeric value.");
+						if(scientific_ && !scientific_sign_)
+						{
+							scientific_sign_ = true;
+							buffer += ch;
+						}
+						else
+							throw std::runtime_error("json::parse: Invalid negative sign in numeric value.");
 						break;
 					case ',':
 					case '}':
@@ -1160,7 +1327,7 @@ parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
 				throw std::runtime_error("json::parse: invalid numeric value. More than one negative signs.");
 			if(positive_signs >= 1 && negative_signs >= 1)
 				throw std::runtime_error("json::parse: invalid numeric value. mixed positive and negative signs.");
-			if(decimal_points > 0)
+			if(decimal_points > 0 || scientific_)
 				jentry.value = make_base_ptr(std::atof(buffer.c_str()));
 			else
 				jentry.value = make_base_ptr(std::atoll(buffer.c_str()));
