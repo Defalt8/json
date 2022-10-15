@@ -6,16 +6,17 @@
 #include <utility>
 #include <array>
 #include <vector>
+#include <list>
+#include <map>
+#include <unordered_map>
 #include "json.hpp"
 
 namespace json {
 
-template <typename group_ = void, typename... Types> class Serializer;
-
-static constexpr bool 
+static inline bool 
 is_little_endian() noexcept
 {
-	constexpr union U { uint32_t ui32_ = 0xABCDEF12; uint8_t bytes[4]; } u;
+	static constexpr union U { uint32_t ui32_ = 0xABCDEF12; uint8_t bytes[4]; } u {};
 	return u.bytes[0] == 0x12;
 }
 
@@ -97,443 +98,1120 @@ hex_string_to_data(json::string_t const & hex_string)
 	return std::move(data);
 }
 
-template <typename F, typename S>
-struct Pair
-{
-	F first  {};
-	S second {};
-
-	Pair() = default;
-	Pair(Pair &&) = default;
-	Pair(Pair const &) = default;
-	Pair & operator=(Pair &&) = default;
-	Pair & operator=(Pair const &) = default;
-
-	template <typename T, typename U>
-	Pair(T && first_, U && second_)
-		: first  { static_cast<F>(first_) }
-		, second { static_cast<S>(second_) }
-	{}
-};
-
-class SerialBase
-{
- protected:
-	SerialBase() = default;
-	SerialBase(SerialBase &&) = default;
-	SerialBase(SerialBase const &) = default;
-
- public:
-	virtual ~SerialBase() = default;
-
-	virtual json::string_t const & id()  const = 0;
-	virtual json::base_ptr_t serialize() const = 0;
-	virtual void deserialize(json::base_ptr_t const & base_ptr) = 0;
-};
-
-namespace detail {
-
-template <typename T, typename C = decltype(std::declval<T>().serialize())>
-static inline bool 
-is_serializable(bool);
-
-template <typename T>
-static inline void 
-is_serializable(...);
-
-} // namespace detail
-
-template <typename T, typename = decltype(detail::is_serializable<T>(false))>
-struct IsSerializable : std::bool_constant<true> {};
-template <typename T>
-struct IsSerializable<T,void> : std::bool_constant<false> {};
-
-template <typename T> struct StripArray { using type = T; };
-template <typename T> struct StripArray<T[]> { using type = T; };
-template <typename T> struct StripArray<std::vector<T>> { using type = T; };
-template <typename T, size_t size_> struct StripArray<T[size_]> { using type = T; };
-template <typename T> using strip_array_t = typename StripArray<T>::type;
-
-// Specialize this class to your types using a unique group type
-template <typename T, typename group_ = void, bool is_array_ = std::is_array<T>::value
-	, bool is_serializer_ = IsSerializable<strip_array_t<T>>::value>
-class Serial
-{};
-
-template <typename T, typename group_>
-class Serial<T,group_,false,false> : public SerialBase
-{
- public:
-	using data_t = T;
-
- private:
-	json::string_t m_id {};
-	data_t       * m_data = nullptr;
-
- public:
-	Serial() = default;
-	Serial(Serial &&) = default;
-	Serial(Serial const &) = default;
-	Serial(json::string_t id_, data_t & val_ref)
-		: m_id   { std::move(id_) }
-		, m_data { &val_ref }
-	{}
-
-	json::string_t const & id()   const override { return m_id; }
-	data_t               * data() const noexcept { return m_data; }
-	
-	json::base_ptr_t
-	serialize() const override
-	{
-		if(!m_data)
-			return {};
-		return json::make_base_ptr(data_to_hex_string(*m_data));
-	}
-
-	void
-	deserialize(json::base_ptr_t const & base_ptr) override
-	{
-		if(!m_data)
-			return;
-		auto const * jstring = dynamic_cast<json::String const *>(base_ptr.get());
-		if(!jstring)
-			return;
-		*m_data = hex_string_to_data<T>(jstring->value());
-	}
-
-};
-
-template <typename T, typename group_>
-class Serial<T,group_,false,true> : public SerialBase
-{
- public:
-	using data_t = T;
-
- private:
-	json::string_t m_id {};
-	data_t       * m_data = nullptr;
-
- public:
-	Serial() = default;
-	Serial(Serial &&) = default;
-	Serial(Serial const &) = default;
-	Serial(json::string_t id_, data_t & val_ref)
-		: m_id   { std::move(id_) }
-		, m_data { &val_ref }
-	{}
-
-	json::string_t const & id()   const override { return m_id; }
-	data_t               * data() const noexcept { return m_data; }
-	
-	json::base_ptr_t
-	serialize() const override
-	{
-		if(!m_data)
-			return {};
-		return json::make_base_ptr(m_data->serialize());
-	}
-
-	void
-	deserialize(json::base_ptr_t const & base_ptr) override
-	{
-		if(!m_data)
-			return;
-		auto const * jobject = dynamic_cast<json::Object const *>(base_ptr.get());
-		if(!jobject)
-			return;
-		m_data->deserialize(*jobject);
-	}
-
-};
-
-template <typename group_, typename... Types>
-class Serial<Serializer<group_,Types...>,group_,false,false> : public SerialBase
-{
- public:
-	using data_t = Serializer<group_,Types...>;
-
- private:
-	json::string_t m_id {};
-	data_t       * m_data = nullptr;
-
- public:
-	Serial() = default;
-	Serial(Serial &&) = default;
-	Serial(Serial const &) = default;
-	Serial(json::string_t id_, data_t & val_ref)
-		: m_id   { std::move(id_) }
-		, m_data { &val_ref }
-	{}
-
-	json::string_t const & id()   const override { return m_id; }
-	data_t               * data() const noexcept { return m_data; }
-	
-	json::base_ptr_t
-	serialize() const override
-	{
-		if(!m_data)
-			return {};
-		return json::make_base_ptr(m_data->serialize());
-	}
-
-	void
-	deserialize(json::base_ptr_t const & base_ptr) override
-	{
-		if(!m_data)
-			return;
-		auto const * jobject = dynamic_cast<json::Object const *>(base_ptr.get());
-		if(!jobject)
-			return;
-		m_data->deserialize(*jobject);
-	}
-
-};
-
-template <typename group_>
-class Serial<json::string_t,group_,false,false> : public SerialBase
-{
- public:
-	using data_t = json::string_t;
-
- private:
-	json::string_t m_id {};
-	data_t       * m_data = nullptr;
-
- public:
-	Serial() = default;
-	Serial(Serial &&) = default;
-	Serial(Serial const &) = default;
-	Serial(json::string_t id_, data_t & val_ref)
-		: m_id   { std::move(id_) }
-		, m_data { &val_ref }
-	{}
-
-	json::string_t const & id()   const override { return m_id; }
-	data_t               * data() const noexcept { return m_data; }
-	
-	json::base_ptr_t
-	serialize() const override
-	{
-		if(!m_data)
-			return {};
-		return json::make_base_ptr(*m_data);
-	}
-
-	void
-	deserialize(json::base_ptr_t const & base_ptr) override
-	{
-		if(!m_data)
-			return;
-		auto const * jstring = dynamic_cast<json::String const *>(base_ptr.get());
-		if(!jstring)
-			return;
-		*m_data = jstring->value();
-	}
-
-};
-
-template <typename group_, typename T, size_t size_>
-class Serial<T[size_],group_,true,false> : public SerialBase
-{
- public:
-	using data_t = T[size_];
-
- private:
-	json::string_t m_id   {};
-	T            * m_data = nullptr;
-
- public:
-	Serial() = default;
-	Serial(Serial &&) = default;
-	Serial(Serial const &) = default;
-	Serial(json::string_t id_, T * array_)
-		: m_id   { std::move(id_) }
-		, m_data { array_ }
-	{}
-
-	json::string_t const & id()   const override { return m_id; }
-	data_t               * data() const noexcept { return m_data; }
-	
-	json::base_ptr_t
-	serialize() const override
-	{
-		if(!m_data)
-			return {};
-		json::Array jarray;
-		for(size_t i = 0; i < size_; ++i)
-			jarray.elements().push_back(json::make_base_ptr(data_to_hex_string(m_data[i])));
-		return json::make_base_ptr(std::move(jarray));
-	}
-
-	void
-	deserialize(json::base_ptr_t const & base_ptr) override
-	{
-		if(!m_data)
-			return;
-		auto const * jarray = dynamic_cast<json::Array const *>(base_ptr.get());
-		if(!jarray)
-			return;
-		auto it = jarray->elements().begin();
-		for(size_t i = 0; i < size_; ++i)
-			m_data[i] = hex_string_to_data<T>(static_cast<json::String const *>((*it++).get())->value());
-	}
-
-};
-
-template <typename T, size_t size_, typename group_>
-class Serial<T[size_],group_,true,true> : public SerialBase
-{
- public:
-	using data_t = T[size_];
-
- private:
-	json::string_t m_id   {};
-	T            * m_data = nullptr;
-
- public:
-	Serial() = default;
-	Serial(Serial &&) = default;
-	Serial(Serial const &) = default;
-	Serial(json::string_t id_, T * array_)
-		: m_id   { std::move(id_) }
-		, m_data { array_ }
-	{}
-
-	json::string_t const & id()   const override { return m_id; }
-	T                    * data() const noexcept { return m_data; }
-	
-	json::base_ptr_t
-	serialize() const override
-	{
-		if(!m_data)
-			return {};
-		json::Array jarray;
-		for(size_t i = 0; i < size_; ++i)
-			jarray.elements().push_back(json::make_base_ptr(m_data[i].serialize()));
-		return json::make_base_ptr(std::move(jarray));
-	}
-
-	void
-	deserialize(json::base_ptr_t const & base_ptr) override
-	{
-		if(!m_data)
-			return;
-		auto const * jarray = dynamic_cast<json::Array const *>(base_ptr.get());
-		if(!jarray)
-			return;
-		auto it = jarray->elements().begin();
-		for(size_t i = 0; i < size_; ++i)
-			m_data[i].deserialize(*static_cast<json::Object const *>((*it++).get()));
-	}
-
-};
-
-template <typename T, typename group_>
-class Serial<std::vector<T>,group_,false,true> : public SerialBase
-{
- public:
-	using data_t = std::vector<T>;
-
- private:
-	json::string_t m_id   {};
-	data_t       * m_data = nullptr;
-
- public:
-	Serial() = default;
-	Serial(Serial &&) = default;
-	Serial(Serial const &) = default;
-	Serial(json::string_t id_, data_t & array_)
-		: m_id   { std::move(id_) }
-		, m_data { &array_ }
-	{}
-
-	json::string_t const & id()   const override { return m_id; }
-	T                    * data() const noexcept { return m_data; }
-	
-	json::base_ptr_t
-	serialize() const override
-	{
-		if(!m_data)
-			return {};
-		json::Array jarray;
-		for(auto const & e : *m_data)
-			jarray.elements().push_back(json::make_base_ptr(e.serialize()));
-		return json::make_base_ptr(std::move(jarray));
-	}
-
-	void
-	deserialize(json::base_ptr_t const & base_ptr) override
-	{
-		if(!m_data)
-			return;
-		auto const * jarray = dynamic_cast<json::Array const *>(base_ptr.get());
-		if(!jarray)
-			return;
-		auto & elements_ = jarray->elements();
-		auto it = elements_.begin();
-		auto & vector_ = *m_data;
-		vector_.resize(elements_.size());
-		for(auto & e : vector_)
-			e.deserialize(*static_cast<json::Object const *>((*it++).get()));
-	}
-
-};
-
 class SerializerBase
 {
-	SerializerBase(SerializerBase &&) = default;
-	SerializerBase(SerializerBase const &) = default;
-	SerializerBase & operator=(SerializerBase &&) = default;
-	SerializerBase & operator=(SerializerBase const &) = default;
- public:
+
+ protected:
 	SerializerBase() = default;
+	SerializerBase(SerializerBase &&) = default;
+	
+ public:
 	virtual ~SerializerBase() = default;
+	virtual json::base_ptr_t serialize() const = 0;
+	virtual void deserialize(json::base_ptr_t const &) = 0;
 };
 
-template <typename group_, typename... Types>
+template <typename T>
 class Serializer : public SerializerBase
 {
-	std::array<std::unique_ptr<SerialBase>,sizeof...(Types)> m_values {};
+ public:
+	using data_t = T;
+	using serial_t = String;
+
+ private:
+	data_t * m_data_ptr = nullptr;
 
  public:
-	Serializer() = default;
 	Serializer(Serializer &&) = default;
-	Serializer(Serializer const &) = default;
-	Serializer & operator=(Serializer &&) = default;
-	Serializer & operator=(Serializer const &) = default;
-	Serializer(Pair<json::string_t,Types &>... values)
-		: m_values { std::unique_ptr<SerialBase>(new Serial<Types,group_>(std::move(values.first), values.second))... }
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
 	{}
 
-	void register_(Pair<json::string_t,Types &>... values)
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
 	{
-		m_values = { std::unique_ptr<SerialBase>(new Serial<Types,group_>(std::move(values.first), values.second))... };
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
 	}
 
-	json::Object
-	serialize() const
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
 	{
-		json::Object jobject;
-		for(auto const & v : m_values)
+		return json::make_base_ptr(data_to_hex_string(data_ref));
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jstring = dynamic_cast<json::String const *>(base_ptr.get());
+		if(!jstring)
+			return;
+		*m_data_ptr = hex_string_to_data<data_t>(jstring->value());
+	}
+
+};
+
+template <typename T>
+static inline Serializer<T>
+make_serializer(T & data_ref) noexcept
+{
+	return { data_ref };
+}
+
+// char
+template <>
+class Serializer<char> : public SerializerBase
+{ 
+ public:
+	using data_t = char;
+	using serial_t = String;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		char buffer[] { data_ref, '\0' };
+		return json::make_base_ptr(json::String(buffer));
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jstr = dynamic_cast<json::String const *>(base_ptr.get());
+		if(!jstr)
+			return;
+		auto const & str = jstr->value();
+		data_ref = data_t(str.size() > 0 ? str[0] : '\0');
+	}
+
+};
+
+// int8_t
+template <>
+class Serializer<int8_t> : public SerializerBase
+{ 
+ public:
+	using data_t = int8_t;
+	using serial_t = Integer;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Integer const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// uint8_t
+template <>
+class Serializer<uint8_t> : public SerializerBase
+{ 
+ public:
+	using data_t = uint8_t;
+	using serial_t = Integer;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Integer const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// int16_t
+template <>
+class Serializer<int16_t> : public SerializerBase
+{ 
+ public:
+	using data_t = int16_t;
+	using serial_t = Integer;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Integer const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// uint16_t
+template <>
+class Serializer<uint16_t> : public SerializerBase
+{ 
+ public:
+	using data_t = uint16_t;
+	using serial_t = Integer;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Integer const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// int32_t
+template <>
+class Serializer<int32_t> : public SerializerBase
+{ 
+ public:
+	using data_t = int32_t;
+	using serial_t = Integer;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Integer const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// uint32_t
+template <>
+class Serializer<uint32_t> : public SerializerBase
+{ 
+ public:
+	using data_t = uint32_t;
+	using serial_t = Integer;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Integer const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+
+};
+
+// int64_t
+template <>
+class Serializer<int64_t> : public SerializerBase
+{ 
+ public:
+	using data_t = int64_t;
+	using serial_t = Integer;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Integer const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+
+};
+
+// uint64_t
+template <>
+class Serializer<uint64_t> : public SerializerBase
+{ 
+ public:
+	using data_t = uint64_t;
+	using serial_t = Integer;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Integer const *>(base_ptr.get());
+		if(!jval)
+			return;
+
+		data_ref = data_t(jval->value());
+	}
+	
+};
+
+// float
+template <>
+class Serializer<float> : public SerializerBase
+{ 
+ public:
+	using data_t = float;
+	using serial_t = Number;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Number const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// double
+template <>
+class Serializer<double> : public SerializerBase
+{ 
+ public:
+	using data_t = double;
+	using serial_t = Number;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Number const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// long double
+template <>
+class Serializer<long double> : public SerializerBase
+{ 
+ public:
+	using data_t = long double;
+	using serial_t = Number;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::Number const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// string_t
+template <>
+class Serializer<string_t> : public SerializerBase
+{ 
+ public:
+	using data_t = string_t;
+	using serial_t = String;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::String const *>(base_ptr.get());
+		if(!jval)
+			return;
+		data_ref = data_t(jval->value());
+	}
+
+};
+
+// char[]
+template <size_t size_>
+class Serializer<char[size_]> : public SerializerBase
+{ 
+ public:
+	using data_t = char[size_];
+	using serial_t = String;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jval = dynamic_cast<json::String const *>(base_ptr.get());
+		if(!jval)
+			return;
+		auto const & str = jval->value();
+		size_t min_size = std::min(size_, str.size() + 1);
+	  #ifdef _MSC_VER
+		strncpy_s(data_ref, str.c_str(), min_size);
+	  #else
+		strncpy(data_ref, str.c_str(), min_size);
+	  #endif
+		data_ref[min_size = 0 ? 0 : (min_size - 1)] = '\0';
+	}
+
+};
+
+// std::array
+template <typename T, size_t size_>
+class Serializer<std::array<T,size_>> : public SerializerBase
+{ 
+ public:
+	using data_t = std::array<T,size_>;
+	using serial_t = Array;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
+	{
+		json::Array jarr;
+		for(auto & e : data_ref)
+			jarr.elements().push_back(Serializer<T>::serialize(e));
+		return json::make_base_ptr(std::move(jarr));
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jarr = dynamic_cast<json::Array const *>(base_ptr.get());
+		if(!jarr)
+			return;
+		auto it  = jarr->elements().begin();
+		for(auto & e : data_ref)
 		{
-			if(v)
-				jobject.set(v->id(), v->serialize());
+			Serializer<T>::deserialize(e, *it);
+			++it;
 		}
-		return std::move(jobject);
 	}
 
-	void
-	deserialize(json::Object const & base_ptr)
+};
+
+// std::vector
+template <typename T>
+class Serializer<std::vector<T>> : public SerializerBase
+{ 
+ public:
+	using data_t = std::vector<T>;
+	using serial_t = Array;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
 	{
-		for(auto const & v : m_values)
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
+	{
+		json::Array jarr;
+		for(auto & e : data_ref)
+			jarr.elements().push_back(Serializer<T>::serialize(e));
+		return json::make_base_ptr(std::move(jarr));
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jarr = dynamic_cast<json::Array const *>(base_ptr.get());
+		if(!jarr)
+			return;
+		auto const & arr = jarr->elements();
+		auto it  = arr.begin();
+		data_ref = data_t(arr.size());
+		for(auto & e : data_ref)
 		{
-			if(v)
-			{
-				auto const & id_ = v->id();
-				auto const * entry = base_ptr.get(id_);
-				if(entry)
-					v->deserialize(*entry);
-			}
+			Serializer<T>::deserialize(e, *it);
+			++it;
+		}
+	}
+
+};
+
+// std::list
+template <typename T>
+class Serializer<std::list<T>> : public SerializerBase
+{ 
+ public:
+	using data_t = std::list<T>;
+	using serial_t = Array;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
+	{
+		json::Array jarr;
+		for(auto & e : data_ref)
+			jarr.elements().push_back(Serializer<T>::serialize(e));
+		return json::make_base_ptr(std::move(jarr));
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jarr = dynamic_cast<json::Array const *>(base_ptr.get());
+		if(!jarr)
+			return;
+		data_ref.clear();
+		auto const & arr = jarr->elements();
+		for(auto & e : arr)
+		{
+			T new_val;
+			Serializer<T>::deserialize(new_val, e);
+			data_ref.push_back(std::move(new_val));
+		}
+	}
+
+};
+
+// std::map
+template <typename V>
+class Serializer<std::map<string_t,V>> : public SerializerBase
+{ 
+ public:
+	using data_t = std::map<string_t,V>;
+	using serial_t = Object;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
+	{
+		json::Object jobj;
+		for(auto & e : data_ref)
+			jobj.entries().insert({e.first, Serializer<V>::serialize(e.second)});
+		return json::make_base_ptr(std::move(jobj));
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jobj = dynamic_cast<json::Object const *>(base_ptr.get());
+		if(!jobj)
+			return;
+		data_ref.clear();
+		auto const & obj = jobj->entries();
+		for(auto & e : obj)
+		{
+			V new_val;
+			Serializer<V>::deserialize(new_val, e.second);
+			data_ref.insert({e.first, std::move(new_val)});
+		}
+	}
+
+};
+
+// std::unordered_map
+template <typename V>
+class Serializer<std::unordered_map<string_t,V>> : public SerializerBase
+{ 
+ public:
+	using data_t = std::unordered_map<string_t,V>;
+	using serial_t = Object;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const & data_ref)
+	{
+		json::Object jobj;
+		for(auto & e : data_ref)
+			jobj.entries().insert({e.first, Serializer<V>::serialize(e.second)});
+		return json::make_base_ptr(std::move(jobj));
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jobj = dynamic_cast<json::Object const *>(base_ptr.get());
+		if(!jobj)
+			return;
+		data_ref.clear();
+		auto const & obj = jobj->entries();
+		for(auto & e : obj)
+		{
+			V new_val;
+			Serializer<V>::deserialize(new_val, e.second);
+			data_ref.insert({e.first, std::move(new_val)});
 		}
 	}
 
