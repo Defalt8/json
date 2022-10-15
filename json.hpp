@@ -1225,6 +1225,12 @@ print_newline(std::ostream & ost)
 }
 
 static std::ostream &
+print(std::ostream & ost, json::null_t const & jnull)
+{
+	return ost << "null";
+}
+
+static std::ostream &
 print(std::ostream & ost, json::Null const & jnull)
 {
 	return ost << "null";
@@ -1376,6 +1382,8 @@ print(std::ostream & ost, json::Base const & jbase, size_t depth_)
 
 static inline std::ostream &
 operator<<(std::ostream & ost, json::Base const & jbase) { return json::print(ost, jbase); }
+static inline std::ostream &
+operator<<(std::ostream & ost, json::null_t const & jnull) { return json::print(ost, jnull); }
 static inline std::ostream &
 operator<<(std::ostream & ost, json::Null const & jnull) { return json::print(ost, jnull); }
 static inline std::ostream &

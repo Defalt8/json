@@ -169,6 +169,125 @@ make_serializer(T & data_ref) noexcept
 	return { data_ref };
 }
 
+// null_t
+template <>
+class Serializer<null_t> : public SerializerBase
+{ 
+ public:
+	using data_t = null_t;
+	using serial_t = Null;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jnull = dynamic_cast<json::Null const *>(base_ptr.get());
+		if(!jnull)
+			return;
+		data_ref = jnull->value();
+	}
+
+};
+
+// boolean_t | bool
+template <>
+class Serializer<boolean_t> : public SerializerBase
+{ 
+ public:
+	using data_t = boolean_t;
+	using serial_t = Boolean;
+
+ private:
+	data_t * m_data_ptr = nullptr;
+
+ public:
+	Serializer(Serializer &&) = default;
+	Serializer(data_t & data_ref)
+		: m_data_ptr { &data_ref }
+	{}
+
+	data_t * data_ptr() const noexcept { return m_data_ptr; }
+
+	json::base_ptr_t 
+	serialize() const override
+	{
+		if(!m_data_ptr)
+			return {};
+		return serialize(*m_data_ptr);
+	}
+
+	void 
+	deserialize(json::base_ptr_t const & base_ptr) override 
+	{ 
+		if(!m_data_ptr)
+			return;
+		deserialize(*m_data_ptr, base_ptr); 
+	};
+
+	static json::base_ptr_t 
+	serialize(data_t const data_ref)
+	{
+		return json::make_base_ptr(data_ref);
+	}
+	
+	static void 
+	deserialize(data_t & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jbool = dynamic_cast<json::Boolean const *>(base_ptr.get());
+		if(!jbool)
+			return;
+		data_ref = jbool->value();
+	}
+	
+	static void 
+	deserialize(std::vector<bool>::reference & data_ref, json::base_ptr_t const & base_ptr)
+	{
+		auto const * jbool = dynamic_cast<json::Boolean const *>(base_ptr.get());
+		if(!jbool)
+			return;
+		data_ref = jbool->value();
+	}
+
+	static inline void 
+	deserialize(std::vector<bool>::reference && data_ref, json::base_ptr_t const & base_ptr)
+	{
+		deserialize(static_cast<std::vector<bool>::reference &>(data_ref), base_ptr);
+	}
+	
+};
+
 // char
 template <>
 class Serializer<char> : public SerializerBase
@@ -948,7 +1067,7 @@ class Serializer<std::array<T,size_>> : public SerializerBase
 	serialize(data_t const & data_ref)
 	{
 		json::Array jarr;
-		for(auto & e : data_ref)
+		for(auto const & e : data_ref)
 			jarr.elements().push_back(Serializer<T>::serialize(e));
 		return json::make_base_ptr(std::move(jarr));
 	}
@@ -1008,7 +1127,7 @@ class Serializer<std::vector<T>> : public SerializerBase
 	serialize(data_t const & data_ref)
 	{
 		json::Array jarr;
-		for(auto & e : data_ref)
+		for(auto const & e : data_ref)
 			jarr.elements().push_back(Serializer<T>::serialize(e));
 		return json::make_base_ptr(std::move(jarr));
 	}
@@ -1022,9 +1141,9 @@ class Serializer<std::vector<T>> : public SerializerBase
 		auto const & arr = jarr->elements();
 		auto it  = arr.begin();
 		data_ref = data_t(arr.size());
-		for(auto & e : data_ref)
+		for(auto dit = data_ref.begin(); dit != data_ref.end(); ++dit)
 		{
-			Serializer<T>::deserialize(e, *it);
+			Serializer<T>::deserialize(*dit, *it);
 			++it;
 		}
 	}
@@ -1070,7 +1189,7 @@ class Serializer<std::list<T>> : public SerializerBase
 	serialize(data_t const & data_ref)
 	{
 		json::Array jarr;
-		for(auto & e : data_ref)
+		for(auto const & e : data_ref)
 			jarr.elements().push_back(Serializer<T>::serialize(e));
 		return json::make_base_ptr(std::move(jarr));
 	}
@@ -1132,7 +1251,7 @@ class Serializer<std::map<string_t,V>> : public SerializerBase
 	serialize(data_t const & data_ref)
 	{
 		json::Object jobj;
-		for(auto & e : data_ref)
+		for(auto const & e : data_ref)
 			jobj.entries().insert({e.first, Serializer<V>::serialize(e.second)});
 		return json::make_base_ptr(std::move(jobj));
 	}
@@ -1194,7 +1313,7 @@ class Serializer<std::unordered_map<string_t,V>> : public SerializerBase
 	serialize(data_t const & data_ref)
 	{
 		json::Object jobj;
-		for(auto & e : data_ref)
+		for(auto const & e : data_ref)
 			jobj.entries().insert({e.first, Serializer<V>::serialize(e.second)});
 		return json::make_base_ptr(std::move(jobj));
 	}
