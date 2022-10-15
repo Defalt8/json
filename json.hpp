@@ -7,7 +7,10 @@
 #include <type_traits>
 #include <memory>
 #include <string>
+#include <array>
+#include <vector>
 #include <list>
+#include <map>
 #include <unordered_map>
 #include <iosfwd>
 #include <iomanip>
@@ -37,8 +40,8 @@
  	});
 	
 	/// use json::access<'json_type'>(base_ptr) to quickly get a reference
-	json::base_ptr_t iserial = json::Serializer<int>::serialize(12345);
-	int val = int(json::access<json::Integer>(iserial).value());
+	json::base_ptr_t serial_ptr = json::Serializer<int>::serialize(12345);
+	int val = int(json::access<json::Integer>(serial_ptr).value());
 
     /// To set a value at a certain entry you can use set and set_safe
 	// NOTE: this overrides any parent types that are not Objects 
@@ -364,13 +367,21 @@ template <> struct JSONType<uint64_t>    { using type = Integer; };
 template <> struct JSONType<number_t>    { using type = Number; };
 template <> struct JSONType<float>       { using type = Number; };
 template <> struct JSONType<long double> { using type = Number; };
-template <>             struct JSONType<string_t>    { using type = String; };
-template <>             struct JSONType<char>        { using type = String; };
-template <size_t size_> struct JSONType<char[size_]> { using type = String; };
+template <>             struct JSONType<string_t>     { using type = String; };
+template <>             struct JSONType<char>         { using type = String; };
+template <>             struct JSONType<char *>       { using type = String; };
+template <>             struct JSONType<char const *> { using type = String; };
+template <>             struct JSONType<char[]>       { using type = String; };
+template <>             struct JSONType<char const[]> { using type = String; };
+template <size_t size_> struct JSONType<char[size_]>  { using type = String; };
+template <size_t size_> struct JSONType<char const [size_]> { using type = String; };
 template <typename E,size_t size_> struct JSONType<E[size_]>            { using type = Array; };
 template <typename E,size_t size_> struct JSONType<std::array<E,size_>> { using type = Array; };
 template <typename E>              struct JSONType<E[]>                 { using type = Array; };
 template <typename E>              struct JSONType<std::vector<E>>      { using type = Array; };
+template <typename E>              struct JSONType<std::list<E>>        { using type = Array; };
+template <typename V> struct JSONType<std::map<string_t,V>>           { using type = Object; };
+template <typename V> struct JSONType<std::unordered_map<string_t,V>> { using type = Object; };
 
 template <typename T> using json_t = typename JSONType<T>::type;
 
@@ -459,7 +470,7 @@ double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, do
 		// round the rightmost nines
 		if(j == c_max_fraction_index)
 		{
-			size_t nines_i = j;
+			int nines_i = j;
 			for(nines_i = j; nines_i >= c_min_fraction_index && string[nines_i] == '9'; --nines_i);
 			if(nines_i < j)
 				precision_ = nines_i - c_min_fraction_index + 1;
@@ -801,6 +812,30 @@ class Array final : public Base
 			}
 		}
 		return nullptr;
+	}
+
+	// CAUTION: O(n) time complexity
+	array_element_t &
+	at(size_t index)
+	{
+		auto it = m_elements.begin();
+		for(size_t i = 0; i < index && it != m_elements.end(); ++i)
+			++it;
+		if(it == m_elements.end())
+			throw std::runtime_error("json::Array::at index out of bounds");
+		return *it;
+	}
+
+	// CAUTION: O(n) time complexity
+	array_element_t const &
+	at(size_t index) const
+	{
+		auto it = m_elements.begin();
+		for(size_t i = 0; i < index && it != m_elements.end(); ++i)
+			++it;
+		if(it == m_elements.end())
+			throw std::runtime_error("json::Array::at index out of bounds");
+		return *it;
 	}
 
 	// T must match the json type. Like int types for Integer
