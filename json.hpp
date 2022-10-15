@@ -7,7 +7,10 @@
 #include <type_traits>
 #include <memory>
 #include <string>
+#include <array>
+#include <vector>
 #include <list>
+#include <map>
 #include <unordered_map>
 #include <iosfwd>
 #include <iomanip>
@@ -36,6 +39,10 @@
  		  }
  	});
 	
+	/// use json::access<'json_type'>(base_ptr) to quickly get a reference
+	json::base_ptr_t serial_ptr = json::Serializer<int>::serialize(12345);
+	int val = int(json::access<json::Integer>(serial_ptr).value());
+
     /// To set a value at a certain entry you can use set and set_safe
 	// NOTE: this overrides any parent types that are not Objects 
 	//       thus replacing them with a new Object.
@@ -69,18 +76,18 @@
 	jobject.remove("0001.vendor");
 	jobject.erase("0001.reviews");
 
-	// you can modify these two before printing
+	/// you can modify these two before printing
 	// setting all these to nullptr will print tightly packed in a single line.
 	json::value_spacing = nullptr; // default is " "
 	json::newline = nullptr; // default is "\n"
 	json::padding = nullptr; // default is "   "
 	
 
-	// output to stdout
+	/// output to stdout
 	std::cout << jobject << std::endl;
 	
 
-	// output to file
+	/// output to file
 	std::ofstream ofs("movies.json", std::ios_base::out);
 	ofs << jobject;
 	
@@ -107,7 +114,7 @@
 	json::Object jobject;
 	std::stringstream sst(sample);
 
-	// parse the object from the string stream
+	/// parse the object from the string stream
 	try 
 	{
 		sst >> jobject; 
@@ -153,13 +160,13 @@ union uInt
 	uInt & operator=(uInt const &) = default;
 
 	constexpr uInt(int64_t i64_)  : i64 { i64_ } {}
-	constexpr uInt(int32_t i32_)  : i32 { i32_ } {}
-	constexpr uInt(int16_t i16_)  : i16 { i16_ } {}
-	constexpr uInt(int8_t  i8_)   : i8  { i8_  } {}
+	constexpr uInt(int32_t i32_)  : i64 { i32_ } {}
+	constexpr uInt(int16_t i16_)  : i64 { i16_ } {}
+	constexpr uInt(int8_t  i8_)   : i64 { i8_  } {}
 	constexpr uInt(uint64_t u64_) : u64 { u64_ } {}
-	constexpr uInt(uint32_t u32_) : u32 { u32_ } {}
-	constexpr uInt(uint16_t u16_) : u16 { u16_ } {}
-	constexpr uInt(uint8_t  u8_)  : u8  { u8_  } {}
+	constexpr uInt(uint32_t u32_) : u64 { u32_ } {}
+	constexpr uInt(uint16_t u16_) : u64 { u16_ } {}
+	constexpr uInt(uint8_t  u8_)  : u64 { u8_  } {}
 
 	constexpr operator int64_t &  () noexcept { return i64; }
 	constexpr operator int32_t &  () noexcept { return i32; }
@@ -232,23 +239,24 @@ struct Int
 	constexpr uint16_t u16() const noexcept { return u.u16; }
 	constexpr uint8_t  u8 () const noexcept { return u.u8;  }
 
-	constexpr operator int64_t &  () noexcept { return u.i64; }
-	constexpr operator int32_t &  () noexcept { return u.i32; }
-	constexpr operator int16_t &  () noexcept { return u.i16; }
-	constexpr operator int8_t  &  () noexcept { return u.i8;  }
-	constexpr operator uint64_t & () noexcept { return u.u64; }
-	constexpr operator uint32_t & () noexcept { return u.u32; }
-	constexpr operator uint16_t & () noexcept { return u.u16; }
-	constexpr operator uint8_t  & () noexcept { return u.u8;  }
-
-	constexpr operator int64_t () const noexcept { return u.i64; }
-	constexpr operator int32_t () const noexcept { return u.i32; }
-	constexpr operator int16_t () const noexcept { return u.i16; }
-	constexpr operator int8_t  () const noexcept { return u.i8;  }
-	constexpr operator uint64_t() const noexcept { return u.u64; }
-	constexpr operator uint32_t() const noexcept { return u.u32; }
-	constexpr operator uint16_t() const noexcept { return u.u16; }
-	constexpr operator uint8_t () const noexcept { return u.u8;  }
+	template <typename T = int>
+	constexpr operator T & () noexcept { return static_cast<T &>(u); }
+	
+	template <typename T = int>
+	constexpr operator T () const noexcept { return static_cast<T const &>(u); }
+	
+	template <typename T>
+	constexpr bool operator==(T const & rhs) const noexcept { return static_cast<T const &>(u) == rhs; }
+	template <typename T>
+	constexpr bool operator!=(T const & rhs) const noexcept { return static_cast<T const &>(u) != rhs; }
+	template <typename T>
+	constexpr bool operator<(T const & rhs) const noexcept { return static_cast<T const &>(u) < rhs; }
+	template <typename T>
+	constexpr bool operator>(T const & rhs) const noexcept { return static_cast<T const &>(u) > rhs; }
+	template <typename T>
+	constexpr bool operator<=(T const & rhs) const noexcept { return static_cast<T const &>(u) <= rhs; }
+	template <typename T>
+	constexpr bool operator>=(T const & rhs) const noexcept { return static_cast<T const &>(u) >= rhs; }
 
 };
 
@@ -276,9 +284,10 @@ using integer_t  = Int;
 using number_t   = double;
 using string_t   = std::string;
 using base_ptr_t = std::unique_ptr<json::Base>;
-using array_element_t   = base_ptr_t;
+using array_element_t  = base_ptr_t;
 using array_elements_t = std::list<array_element_t>;
-using array_elements_iterator_t = array_elements_t::iterator;
+using array_elements_iterator_t       = array_elements_t::iterator;
+using array_elements_const_iterator_t = array_elements_t::const_iterator;
 using object_entry_t = std::pair<string_t,base_ptr_t>;
 using object_entries_t = std::unordered_map<string_t,base_ptr_t>;
 using object_entries_iterator_t = object_entries_t::iterator;
@@ -308,7 +317,7 @@ static std::ostream & print(std::ostream & ost, json::Boolean const & jboolean);
 static std::ostream & print(std::ostream & ost, json::Integer const & jinteger);
 static std::ostream & print(std::ostream & ost, json::Number const & jnumber);
 static std::ostream & print(std::ostream & ost, json::String const & jstring);
-static std::ostream & print(std::ostream & ost, json::Array const & jarray, size_t depth_ = 0);
+static std::ostream & print(std::ostream & ost, json::Array const & jarray, size_t depth_ = 0, bool padding_ = true);
 static std::ostream & print(std::ostream & ost, json::Object const & jobject, size_t depth_ = 0);
 static std::ostream & print(std::ostream & ost, json::Base const & jbase, size_t depth_ = 0);
 
@@ -342,6 +351,237 @@ template <> struct CType<Number>  { static constexpr Type value = Type::Number; 
 template <> struct CType<String>  { static constexpr Type value = Type::String; };
 template <> struct CType<Object>  { static constexpr Type value = Type::Object; };
 template <> struct CType<Array>   { static constexpr Type value = Type::Array; };
+
+template <typename T> struct JSONType    { using type = Object; };
+template <> struct JSONType<null_t>      { using type = Null; };
+template <> struct JSONType<boolean_t>   { using type = Boolean; };
+template <> struct JSONType<integer_t>   { using type = Integer; };
+template <> struct JSONType<int8_t>      { using type = Integer; };
+template <> struct JSONType<uint8_t>     { using type = Integer; };
+template <> struct JSONType<int16_t>     { using type = Integer; };
+template <> struct JSONType<uint16_t>    { using type = Integer; };
+template <> struct JSONType<int32_t>     { using type = Integer; };
+template <> struct JSONType<uint32_t>    { using type = Integer; };
+template <> struct JSONType<int64_t>     { using type = Integer; };
+template <> struct JSONType<uint64_t>    { using type = Integer; };
+template <> struct JSONType<number_t>    { using type = Number; };
+template <> struct JSONType<float>       { using type = Number; };
+template <> struct JSONType<long double> { using type = Number; };
+template <>             struct JSONType<string_t>     { using type = String; };
+template <>             struct JSONType<char>         { using type = String; };
+template <>             struct JSONType<char *>       { using type = String; };
+template <>             struct JSONType<char const *> { using type = String; };
+template <>             struct JSONType<char[]>       { using type = String; };
+template <>             struct JSONType<char const[]> { using type = String; };
+template <size_t size_> struct JSONType<char[size_]>  { using type = String; };
+template <size_t size_> struct JSONType<char const [size_]> { using type = String; };
+template <typename E,size_t size_> struct JSONType<E[size_]>            { using type = Array; };
+template <typename E,size_t size_> struct JSONType<std::array<E,size_>> { using type = Array; };
+template <typename E>              struct JSONType<E[]>                 { using type = Array; };
+template <typename E>              struct JSONType<std::vector<E>>      { using type = Array; };
+template <typename E>              struct JSONType<std::list<E>>        { using type = Array; };
+template <typename V> struct JSONType<std::map<string_t,V>>           { using type = Object; };
+template <typename V> struct JSONType<std::unordered_map<string_t,V>> { using type = Object; };
+
+template <typename T> using json_t = typename JSONType<T>::type;
+
+// precision < 0 means max precision but cut out the right-most zeros
+// min_sci_value is the minimum value where the output will switch to scientific notation
+// max_sci_value is the maximum value where the output will switch to scientific notation
+// NOTE: perfecto mundo
+static string_t
+double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, double max_sci_value = 1e+4) noexcept
+{
+	static constexpr int c_min_integer_index  = 1;
+	static constexpr int c_max_integer_index  = 15;
+	static constexpr int c_min_fraction_index = 17;
+	static constexpr int c_max_fraction_index = 31;
+	static constexpr int c_max_precision      = 15;
+	bool negative = rhs < 0;
+	double value = static_cast<double>(negative ? -rhs : rhs);
+	bool scientific_notation = false;
+	int exponent_ = 0;
+	if(value >= max_sci_value) // use scientific notation
+	{
+		scientific_notation = true;
+		while(value >= 10.0)
+		{
+			value /= 10.0;
+			++exponent_;
+		}
+	}
+	else if(value < min_sci_value)
+	{
+		scientific_notation = true;
+		while(value < 1.0)
+		{
+			value *= 10.0;
+			--exponent_;
+		}
+	}
+	double integer = 0.0;
+	double fraction = modf(value, &integer);
+	char string[] {
+		  ' '
+		, char('0' + uint64_t(integer / 100000000000000.) % 10)
+		, char('0' + uint64_t(integer / 10000000000000.) % 10)
+		, char('0' + uint64_t(integer / 1000000000000.) % 10)
+		, char('0' + uint64_t(integer / 100000000000.) % 10)
+		, char('0' + uint64_t(integer / 10000000000.) % 10)
+		, char('0' + uint64_t(integer / 1000000000.) % 10)
+		, char('0' + uint64_t(integer / 100000000.) % 10)
+		, char('0' + uint64_t(integer / 10000000.) % 10)
+		, char('0' + uint64_t(integer / 1000000.) % 10)
+		, char('0' + uint64_t(integer / 100000.) % 10)
+		, char('0' + uint64_t(integer / 10000.) % 10)
+		, char('0' + uint64_t(integer / 1000.) % 10)
+		, char('0' + uint64_t(integer / 100.) % 10)
+		, char('0' + uint64_t(integer / 10.) % 10)
+		, char('0' + uint64_t(integer) % 10)
+		, '.'
+		, char('0' + uint64_t(fraction * 10.) % 10)
+		, char('0' + uint64_t(fraction * 100.) % 10)
+		, char('0' + uint64_t(fraction * 1000.) % 10)
+		, char('0' + uint64_t(fraction * 10000.) % 10)
+		, char('0' + uint64_t(fraction * 100000.) % 10)
+		, char('0' + uint64_t(fraction * 1000000.) % 10)
+		, char('0' + uint64_t(fraction * 10000000.) % 10)
+		, char('0' + uint64_t(fraction * 100000000.) % 10)
+		, char('0' + uint64_t(fraction * 1000000000.) % 10)
+		, char('0' + uint64_t(fraction * 10000000000.) % 10)
+		, char('0' + uint64_t(fraction * 100000000000.) % 10)
+		, char('0' + uint64_t(fraction * 1000000000000.) % 10)
+		, char('0' + uint64_t(fraction * 10000000000000.) % 10)
+		, char('0' + uint64_t(fraction * 100000000000000.) % 10)
+		, char('0' + uint64_t(fraction * 1000000000000000.) % 10)
+		, '\0'
+		, '\0'
+		, '\0'
+		, '\0'
+		, '\0'
+	};
+	int i = c_min_integer_index;
+	int j = c_max_fraction_index;
+	for(; i < c_max_integer_index && string[i] == '0'; ++i);
+	// trim the rightmost zeros
+	if(precision_ < 0)
+	{
+		for(; j > c_min_fraction_index && string[j] == '0'; --j);
+		// round the rightmost nines
+		if(j == c_max_fraction_index)
+		{
+			int nines_i = j;
+			for(nines_i = j; nines_i >= c_min_fraction_index && string[nines_i] == '9'; --nines_i);
+			if(nines_i < j)
+				precision_ = nines_i - c_min_fraction_index + 1;
+		}
+	}
+	// round to precision
+	if(precision_ >= 0)
+	{
+		int const precision_index = c_min_fraction_index + std::max(std::min(precision_, c_max_precision), 0);
+		for(; j > precision_index && string[j] == '0'; --j);
+		// rounding right to zeros
+		int carry = 0;
+		for(; j >= precision_index; --j)
+		{
+			char & chr = string[j];
+			int digit = int(chr - '0') + carry;
+			if(digit >= 5)
+				carry = 1;
+			else
+				carry = 0;
+			chr = '0';
+		}
+		// continue rounding fraction
+		for(int k = j; carry > 0 && k >= c_min_fraction_index; --k)
+		{
+			char & chr = string[k];
+			int digit = int(chr - '0') + carry;
+			if(digit > 9)
+			{
+				carry = 1;
+				chr = '0';
+			}
+			else
+			{
+				carry = 0;
+				chr = '0' + char(digit);
+			}
+		}
+		// continue rounding integer
+		if(carry > 0)
+		{
+			int const min_integer_index = std::min(i - 1, c_min_integer_index);
+			int k = c_max_integer_index;
+			for(; carry > 0 && k >= min_integer_index; --k)
+			{
+				char & chr = string[k];
+				int digit = int(chr - '0') + carry;
+				if(digit > 9)
+				{
+					carry = 1;
+					chr = '0';
+				}
+				else
+				{
+					carry = 0;
+					chr = '0' + char(digit);
+				}
+			}
+			if(k < i - 1)
+				i = k + 1;
+		}
+	}
+	// negative sign
+	if(negative)
+		string[--i] = '-';
+	if(precision_ == 0) // 0 precision => remove decimal point
+		--j;
+	if(scientific_notation)
+	{
+		bool negative_exp = exponent_ < 0;
+		if(negative_exp)
+			exponent_ = -exponent_;
+		char exp_str[] {
+			  char('0' + (exponent_ / 100) % 10)
+			, char('0' + (exponent_ / 10) % 10)
+			, char('0' + (exponent_) % 10)
+			, '\0'
+		};
+		if(j == c_min_fraction_index && string[j] == '0')
+			j -= 2;
+		string[++j] = 'e';
+		string[++j] = negative_exp ? '-' : '+';
+		size_t exp_i = exp_str[0] == '0' ? (exp_str[1] == '0' ? 2 : 1) : 0;
+		for(size_t i = exp_i; i < 3; ++i)
+			string[++j] = exp_str[i];
+	}
+	string[++j] = '\0';
+	return { &string[i] };
+}
+
+template <class C>
+static C &
+access(base_ptr_t & base_ptr) noexcept(false)
+{
+	if(!base_ptr)
+		throw std::runtime_error("json::access: accessing null base_ptr");
+	if(CType<C>::value != base_ptr->type())
+		throw std::runtime_error("json::access: wrong cast, base_ptr");
+	return *static_cast<C *>(base_ptr.get());
+}
+
+template <class C>
+static C const &
+access(base_ptr_t const & base_ptr) noexcept(false)
+{
+	if(!base_ptr)
+		throw std::runtime_error("json::access: accessing null base_ptr");
+	if(CType<C>::value != base_ptr->type())
+		throw std::runtime_error("json::access: wrong cast, base_ptr");
+	return *static_cast<C const *>(base_ptr.get());
+}
 
 class Base
 {
@@ -505,10 +745,10 @@ class Array final : public Base
 	Array & operator=(Array const &) = delete;
 
 	template <size_t size_>
-	Array(array_element_t (&& elements_)[size_])
+	Array(base_ptr_t (&& base_ptrs_)[size_])
 	{
-		for(auto & element_ : elements_)
-			m_elements.push_back(std::move(element_));
+		for(auto & e : base_ptrs_)
+			m_elements.push_back(std::move(e));
 	}
 
 	template <typename T, size_t size_>
@@ -524,6 +764,175 @@ class Array final : public Base
 	{}
 
 	Type type() const noexcept override { return Type::Array; }
+
+	// T must match the json type. Like int types for Integer
+	template <typename T, class C = json_t<T>>
+	C *
+	get(T const & value_)
+	{
+		auto it = m_elements.begin();
+		for(; it != m_elements.end(); ++it)
+		{
+			auto & cit = access<C>(*it);
+			if(cit.value() == value_)
+				return &cit;
+		}
+		return nullptr;
+	}
+
+	// T must match the json type. Like int types for Integer
+	template <typename T, class C = json_t<T>>
+	C const *
+	get(T const & value_) const
+	{
+		auto it = m_elements.begin();
+		for(; it != m_elements.end(); ++it)
+		{
+			auto const & cit = access<C>(*it);
+			if(cit.value() == value_)
+				return &cit;
+		}
+		return nullptr;
+	}
+
+	// T must match the json type. Like int types for Integer
+	template <typename T, typename U, class C = json_t<T>>
+	C *
+	set(T const & old_value_, U const & new_value_)
+	{
+		auto it = m_elements.begin();
+		for(; it != m_elements.end(); ++it)
+		{
+			auto & cit = access<C>(*it);
+			auto & value = cit.value();
+			if(value == old_value_)
+			{
+				value = new_value_;
+				return &cit;
+			}
+		}
+		return nullptr;
+	}
+
+	// CAUTION: O(n) time complexity
+	array_element_t &
+	at(size_t index)
+	{
+		auto it = m_elements.begin();
+		for(size_t i = 0; i < index && it != m_elements.end(); ++i)
+			++it;
+		if(it == m_elements.end())
+			throw std::runtime_error("json::Array::at index out of bounds");
+		return *it;
+	}
+
+	// CAUTION: O(n) time complexity
+	array_element_t const &
+	at(size_t index) const
+	{
+		auto it = m_elements.begin();
+		for(size_t i = 0; i < index && it != m_elements.end(); ++i)
+			++it;
+		if(it == m_elements.end())
+			throw std::runtime_error("json::Array::at index out of bounds");
+		return *it;
+	}
+
+	// T must match the json type. Like int types for Integer
+	template <typename T, class C = json_t<T>>
+	C *
+	insert(T value_)
+	{
+		auto it = m_elements.insert(m_elements.end(), make_base_ptr(std::move(value_)));
+		return &access<C>(*it);
+	}
+
+	// T must match the json type. Like int types for Integer
+	template <typename T, class C = json_t<T>>
+	C *
+	rinsert(T const & value_)
+	{
+		auto it = m_elements.insert(m_elements.begin(), make_base_ptr(value_));
+		return &access<C>(*it);
+	}
+
+	// T must match the json type. Like int types for Integer
+	template <typename T>
+	bool
+	remove(T const & value_, int skip_ = 0, int count_ = 1)
+	{
+		if(count_ <= 0)
+			return false;
+		using C = json_t<T>;
+		for(auto it = m_elements.begin(); it != m_elements.end();)
+		{
+			auto const & e = access<C>(*it);
+			if(e.value() == value_ && skip_-- <= 0)
+			{
+				auto cur_it = it;
+				++it;
+				m_elements.erase(cur_it);
+				if(--count_ <= 0)
+					return true;
+				continue;
+			}
+			++it;
+		}
+		return false;
+	}
+
+	template <typename C>
+	void
+	erase(C * element_ptr)
+	{
+		if(!element_ptr)
+			return;
+		for(auto it = m_elements.begin(); it != m_elements.end(); ++it)
+		{
+			auto const & e = access<C>(*it);
+			if(&e == element_ptr)
+			{
+				auto cur_it = it;
+				++it;
+				m_elements.erase(cur_it);
+				return;
+			}
+		}
+	}
+
+	void
+	erase(array_elements_const_iterator_t const & pos_)
+	{
+		m_elements.erase(pos_);
+	}
+
+	template <typename T>
+	array_elements_iterator_t
+	find(T const & value_)
+	{
+		using C = json_t<T>;
+		for(auto it = m_elements.begin(); it != m_elements.end(); ++it)
+		{
+			auto const & e = access<C>(*it);
+			if(e.value() == value_)
+				return it;
+		}
+		return m_elements.end();
+	}
+
+	template <typename T>
+	array_elements_const_iterator_t
+	find(T const & value_) const
+	{
+		using C = typename json_t<T>;
+		for(auto it = m_elements.cbegin(); it != m_elements.cend(); ++it)
+		{
+			auto const & e = access<C>(*it);
+			if(e.value() == value_)
+				return it;
+		}
+		return m_elements.cend();
+	}
 
 	array_elements_t       & elements()       noexcept { return m_elements; }
 	array_elements_t const & elements() const noexcept { return m_elements; }
@@ -685,7 +1094,7 @@ class Object final : public Base
 	}
 
 	// C must be a valid json type such as Null, Boolean or String
-	template <class C, typename V = C::value_t>
+	template <class C, typename V = typename C::value_t>
 	V *
 	get_value(string_t id) noexcept
 	{
@@ -695,7 +1104,7 @@ class Object final : public Base
 		return &static_cast<C *>(base_ptr->get())->value();
 	}
 
-	template <class C, typename V = C::value_t>
+	template <class C, typename V = typename C::value_t>
 	V const *
 	get_value(string_t id) const noexcept
 	{
@@ -816,6 +1225,12 @@ print_newline(std::ostream & ost)
 }
 
 static std::ostream &
+print(std::ostream & ost, json::null_t const & jnull)
+{
+	return ost << "null";
+}
+
+static std::ostream &
 print(std::ostream & ost, json::Null const & jnull)
 {
 	return ost << "null";
@@ -836,8 +1251,7 @@ print(std::ostream & ost, json::Integer const & jinteger)
 static std::ostream &
 print(std::ostream & ost, json::Number const & jnumber)
 {
-	return ost << std::setprecision(13) << std::fixed << jnumber.number() 
-		<< std::setprecision(ost.precision()) << std::defaultfloat;
+	return ost << double_to_string(jnumber.number());
 }
 
 static std::ostream &
@@ -847,36 +1261,47 @@ print(std::ostream & ost, json::String const & jstring)
 }
 
 static std::ostream &
-print(std::ostream & ost, json::Array const & jarray, size_t depth_)
+print(std::ostream & ost, json::Array const & jarray, size_t depth_, bool padding_)
 {
-	print_padding(ost, depth_);
+	if(padding_)
+		print_padding(ost, depth_);
 	ost << '[';
 	auto const & array_elements = jarray.elements();
 	size_t i = 0;
 	size_t size_ = array_elements.size();
+	size_t size_l = size_ == 0 ? 0 : (size_ - 1);
+	bool new_line_ = false;
 	for(auto const & element : array_elements)
 	{
 		if(!element)
 			continue;
-		print_newline(ost);
 		switch(element->type())
 		{
 			case Type::Array:
 			case Type::Object:
+				new_line_ = true;
+				print_newline(ost);
 				break;
-			default:
+			case Type::String:
+				new_line_ = true;
+				print_newline(ost);
 				print_padding(ost, depth_ + 1);
 				break;
+			default:
+				break;
 		}
-		json::print(ost, *element, depth_);
-		if(i < size_ - 1)
-			ost << ",";
+		json::print(ost, *element, depth_ + 1);
+		if(i < size_l)
+			ost << ", ";
 		++i;
 	}
-	if(i > 0)
-		print_newline(ost);
-	if(size_ > 0)
-		print_padding(ost, depth_);
+	if(new_line_ && padding_)
+	{
+		if(i > 0)
+			print_newline(ost);
+		if(size_ > 0)
+			print_padding(ost, depth_);
+	}
 	ost << ']';
 	return ost;
 }
@@ -884,11 +1309,12 @@ print(std::ostream & ost, json::Array const & jarray, size_t depth_)
 static std::ostream &
 print(std::ostream & ost, json::Object const & jobject, size_t depth_)
 {
-	print_padding(ost, depth_);
-	ost << '{';
 	auto const & jobject_entries = jobject.entries();
 	size_t i = 0;
 	size_t size_ = jobject_entries.size();
+	if(size_ > 0)
+		print_padding(ost, depth_);
+	ost << '{';
 	for(auto const & entry : jobject_entries)
 	{
 		print_newline(ost);
@@ -900,13 +1326,32 @@ print(std::ostream & ost, json::Object const & jobject, size_t depth_)
 		switch(value->type())
 		{
 			case Type::Array:
-			case Type::Object:
-				print_newline(ost);
+			{
+				auto const & jarray = access<Array>(value);
+				auto const & elements_ = jarray.elements();
+				Type first_type = Type::Base;
+				if(elements_.size() >= 1)
+					first_type = (*elements_.begin())->type();
+				bool single_line_ = elements_.size() == 0 
+					|| (elements_.size() >= 1 && !(first_type == Type::Array || first_type == Type::Object || first_type == Type::String));
+				if(!single_line_)
+					print_newline(ost);
+				json::print(ost, jarray, depth_ + 1, !single_line_);
 				break;
+			}
+			case Type::Object:
+			{
+				auto const & jobject = access<Object>(value);
+				auto const & entries_ = jobject.entries();
+				if(entries_.size() > 0)
+					print_newline(ost);
+				json::print(ost, jobject, depth_ + 1);
+				break;
+			}
 			default:
+				json::print(ost, *value, depth_ + 1);
 				break;
 		}
-		json::print(ost, *value, depth_);
 		if(i < size_ - 1)
 			ost << ",";
 		++i;
@@ -924,33 +1369,21 @@ print(std::ostream & ost, json::Base const & jbase, size_t depth_)
 {
 	switch(jbase.type())
 	{
-		case json::Type::Null:
-			json::print(ost, static_cast<json::Null const &>(jbase));
-			break;
-		case json::Type::Boolean:
-			json::print(ost, static_cast<json::Boolean const &>(jbase));
-			break;
-		case json::Type::Integer:
-			json::print(ost, static_cast<json::Integer const &>(jbase));
-			break;
-		case json::Type::Number:
-			json::print(ost, static_cast<json::Number const &>(jbase));
-			break;
-		case json::Type::String:
-			json::print(ost, static_cast<json::String const &>(jbase));
-			break;
-		case json::Type::Object:
-			json::print(ost, static_cast<json::Object const &>(jbase), depth_ + 1);
-			break;
-		case json::Type::Array:
-			json::print(ost, static_cast<json::Array const &>(jbase), depth_ + 1);
-			break;
-		default: 
-			break;
+		case json::Type::Null:    return json::print(ost, static_cast<json::Null const &>(jbase));
+		case json::Type::Boolean: return json::print(ost, static_cast<json::Boolean const &>(jbase));
+		case json::Type::Integer: return json::print(ost, static_cast<json::Integer const &>(jbase));
+		case json::Type::Number:  return json::print(ost, static_cast<json::Number const &>(jbase));
+		case json::Type::String:  return json::print(ost, static_cast<json::String const &>(jbase));
+		case json::Type::Object:  return json::print(ost, static_cast<json::Object const &>(jbase), depth_);
+		case json::Type::Array:   return json::print(ost, static_cast<json::Array const &>(jbase), depth_);
+		default: return ost;
 	}
-	return ost;
 }
 
+static inline std::ostream &
+operator<<(std::ostream & ost, json::Base const & jbase) { return json::print(ost, jbase); }
+static inline std::ostream &
+operator<<(std::ostream & ost, json::null_t const & jnull) { return json::print(ost, jnull); }
 static inline std::ostream &
 operator<<(std::ostream & ost, json::Null const & jnull) { return json::print(ost, jnull); }
 static inline std::ostream &
