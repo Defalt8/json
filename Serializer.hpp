@@ -1,6 +1,6 @@
 #pragma once
-#ifndef SERIALIZER_HPP
-#define SERIALIZER_HPP
+#ifndef JSON_SERIALIZER_HPP
+#define JSON_SERIALIZER_HPP
 
 #include <cstdint>
 #include <cstdlib>
@@ -15,91 +15,6 @@
 #include "json.hpp"
 
 namespace json {
-
-static inline bool 
-is_little_endian() noexcept
-{
-	static constexpr union U { uint32_t ui32_ = 0xABCDEF12; uint8_t bytes[4]; } u {};
-	return u.bytes[0] == 0x12;
-}
-
-static constexpr char
-hex_char(uint8_t value) 
-{
-	if(value <= 9)
-		return '0' + value;
-	else if(value <= 15)
-		return 'a' + value - 10;
-	else
-		return '0';
-}
-
-static constexpr uint8_t  
-hex_value(char hex_char) 
-{
-	if(hex_char >= '0' && hex_char <= '9')
-		return uint8_t(hex_char - '0');
-	else if(hex_char >= 'a' && hex_char <= 'f')
-		return 10 + uint8_t(hex_char - 'a');
-	else
-		return 0;
-}
-
-template <typename T>
-static json::string_t
-data_to_hex_string(T const & data)
-{
-	constexpr size_t byte_length = 2;
-	json::string_t hex_string(sizeof(T) * byte_length, '\0');
-	char * buffer = &hex_string[0];
-	uint8_t const * data_bytes = reinterpret_cast<uint8_t const *>(&data);
-	if(is_little_endian())
-	{
-		for(size_t i = 0; i < sizeof(T); ++i)
-		{
-			size_t k = sizeof(T) - i - 1;
-			buffer[i * byte_length]     = hex_char(data_bytes[k] / 0x0F);
-			buffer[i * byte_length + 1] = hex_char(data_bytes[k] % 0x0F);
-		}
-	}
-	else
-	{
-		for(size_t i = 0; i < sizeof(T); ++i)
-		{
-			buffer[i * byte_length]     = hex_char(data_bytes[i] / 0x0F);
-			buffer[i * byte_length + 1] = hex_char(data_bytes[i] % 0x0F);
-		}
-	}
-	return std::move(hex_string);
-}
-
-template <typename T>
-static T
-hex_string_to_data(json::string_t const & hex_string)
-{
-	constexpr size_t byte_length = 2;
-	char const * buffer = &hex_string[0];
-	T data;
-	uint8_t * data_bytes = reinterpret_cast<uint8_t *>(&data);
-	if(is_little_endian())
-	{
-		for(size_t i = 0; i < sizeof(T); ++i)
-		{
-			size_t k = sizeof(T) - i - 1;
-			data_bytes[k] = hex_value(buffer[i * byte_length]) * 0x0F 
-				+ hex_value(buffer[i * byte_length + 1]);
-		}
-	}
-	else
-	{
-		for(size_t i = 0; i < sizeof(T); ++i)
-		{
-			data_bytes[i] = hex_value(buffer[i * byte_length]) * 0x0F 
-				+ hex_value(buffer[i * byte_length + 1]);
-		}
-	}
-	return std::move(data);
-}
 
 class SerializerBase
 {
@@ -1604,4 +1519,4 @@ class Serializer<std::unordered_map<string_t,V>> final : public SerializerBase
 
 } // namespace json
 
-#endif // SERIALIZER_HPP
+#endif // JSON_SERIALIZER_HPP
