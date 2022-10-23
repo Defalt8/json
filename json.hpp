@@ -2490,6 +2490,9 @@ static inline std::istream &
 operator>>(std::istream & ist, json::Number & jnumber) { return json::parse(ist, jnumber, '\0'); }
 
 static inline std::istream &
+operator>>(std::istream & ist, json::String & jstring) { return json::parse(ist, jstring); }
+
+static inline std::istream &
 operator>>(std::istream & ist, json::Array & jarray) { return json::parse(ist, jarray); }
 
 static inline std::istream &
