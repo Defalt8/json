@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <utility>
 #include <type_traits>
+#include <limits>
 #include <memory>
 #include <string>
 #include <array>
@@ -39,9 +40,9 @@
  		  }
  	});
 	
-	/// use json::access<'json_type'>(base_ptr) to quickly get a reference
+	/// use json::get<'json_type'>(base_ptr) to quickly get a reference
 	json::base_ptr_t serial_ptr = json::Serializer<int>::serialize(12345);
-	int val = int(json::access<json::Integer>(serial_ptr).value());
+	int val = int(json::get<json::Integer>(serial_ptr).value());
 
     /// To set a value at a certain entry you can use set and set_safe
 	// NOTE: this overrides any parent types that are not Objects 
@@ -291,7 +292,13 @@ using array_elements_const_iterator_t = array_elements_t::const_iterator;
 using object_entry_t = std::pair<string_t,base_ptr_t>;
 using object_entries_t = std::unordered_map<string_t,base_ptr_t>;
 using object_entries_iterator_t = object_entries_t::iterator;
-static constexpr null_t null {};
+static constexpr null_t      null {};
+static constexpr number_t    nan  = std::numeric_limits<number_t>::quiet_NaN();
+static constexpr float       nanf = std::numeric_limits<float>::quiet_NaN();
+static constexpr long double nanl = std::numeric_limits<long double>::quiet_NaN();
+static constexpr number_t    inf  = std::numeric_limits<number_t>::infinity();
+static constexpr float       inff = std::numeric_limits<float>::infinity();
+static constexpr long double infl = std::numeric_limits<long double>::infinity();
 static char const * value_spacing = " ";
 static char const * padding = "   ";
 static char const * newline = "\n";
@@ -388,72 +395,99 @@ template <typename T> using json_t = typename JSONType<T>::type;
 // precision < 0 means max precision but cut out the right-most zeros
 // min_sci_value is the minimum value where the output will switch to scientific notation
 // max_sci_value is the maximum value where the output will switch to scientific notation
-// NOTE: perfecto mundo
 static string_t
-double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, double max_sci_value = 1e+4) noexcept
+double_to_string(double rhs, int precision_ = -1, double min_sci_value = 1e-2, double max_sci_value = 1e+4) noexcept
 {
-	static constexpr int c_min_integer_index  = 1;
-	static constexpr int c_max_integer_index  = 15;
-	static constexpr int c_min_fraction_index = 17;
-	static constexpr int c_max_fraction_index = 31;
-	static constexpr int c_max_precision      = 15;
+	constexpr int c_min_integer_index  = 1;
+	constexpr int c_max_integer_index  = 16;
+	constexpr int c_min_fraction_index = 18;
+	constexpr int c_max_fraction_index = 33;
+	constexpr int c_max_precision      = 16;
+	if(precision_ > c_max_precision)
+		precision_ = c_max_precision;
 	bool negative = rhs < 0;
-	double value = static_cast<double>(negative ? -rhs : rhs);
+	double value = negative ? -rhs : rhs;
 	bool scientific_notation = false;
 	int exponent_ = 0;
+	if(value == 0.0)
+		return "0.0";
+	else if(value != value) // is nan
+		return "null";
+	else if(value == std::numeric_limits<double>::infinity())
+		return negative ? "-9e+999" : "9e+999";
+	else if(value >= std::numeric_limits<double>::max())
+	{
+		constexpr char max_val_str[]     = "1.7976931348623158e+308";
+		constexpr char max_neg_val_str[] = "-1.7976931348623158e+308";
+		if(precision_ < 0)
+			return negative ? max_neg_val_str : max_val_str;
+		else if(negative)
+		{
+			int precision_index_ = precision_ == 0 ? -1 : precision_;
+			std::string str_ { &max_neg_val_str[0], &max_neg_val_str[3+precision_index_] };
+			str_ += "e+308";
+			return std::move(str_);
+		}
+		else
+		{
+			int precision_index_ = precision_ == 0 ? -1 : precision_;
+			std::string str_ { &max_val_str[0], &max_val_str[2+precision_index_] };
+			str_ += "e+308";
+			return std::move(str_);
+		}
+	}
 	if(value >= max_sci_value) // use scientific notation
 	{
 		scientific_notation = true;
-		while(value >= 10.0)
-		{
-			value /= 10.0;
-			++exponent_;
-		}
+		double sig_digits_ = floor(log10(value));
+		value /= pow(10.0, sig_digits_);
+		exponent_ += int(sig_digits_);
 	}
 	else if(value < min_sci_value)
 	{
 		scientific_notation = true;
-		while(value < 1.0)
-		{
-			value *= 10.0;
-			--exponent_;
-		}
+		double sig_digits_ = floor(-log10(value)+1);
+		value *= pow(10.0, sig_digits_);
+		exponent_ -= int(sig_digits_);
 	}
 	double integer = 0.0;
 	double fraction = modf(value, &integer);
-	char string[] {
+	char buffer[] {
 		  ' '
-		, char('0' + uint64_t(integer / 100000000000000.) % 10)
-		, char('0' + uint64_t(integer / 10000000000000.) % 10)
-		, char('0' + uint64_t(integer / 1000000000000.) % 10)
-		, char('0' + uint64_t(integer / 100000000000.) % 10)
-		, char('0' + uint64_t(integer / 10000000000.) % 10)
-		, char('0' + uint64_t(integer / 1000000000.) % 10)
-		, char('0' + uint64_t(integer / 100000000.) % 10)
-		, char('0' + uint64_t(integer / 10000000.) % 10)
-		, char('0' + uint64_t(integer / 1000000.) % 10)
-		, char('0' + uint64_t(integer / 100000.) % 10)
-		, char('0' + uint64_t(integer / 10000.) % 10)
-		, char('0' + uint64_t(integer / 1000.) % 10)
-		, char('0' + uint64_t(integer / 100.) % 10)
-		, char('0' + uint64_t(integer / 10.) % 10)
+		, char('0' + uint64_t(integer / 1e+15) % 10)
+		, char('0' + uint64_t(integer / 1e+14) % 10)
+		, char('0' + uint64_t(integer / 1e+13) % 10)
+		, char('0' + uint64_t(integer / 1e+12) % 10)
+		, char('0' + uint64_t(integer / 1e+11) % 10)
+		, char('0' + uint64_t(integer / 1e+10) % 10)
+		, char('0' + uint64_t(integer / 1e+9) % 10)
+		, char('0' + uint64_t(integer / 1e+8) % 10)
+		, char('0' + uint64_t(integer / 1e+7) % 10)
+		, char('0' + uint64_t(integer / 1e+6) % 10)
+		, char('0' + uint64_t(integer / 1e+5) % 10)
+		, char('0' + uint64_t(integer / 1e+4) % 10)
+		, char('0' + uint64_t(integer / 1e+3) % 10)
+		, char('0' + uint64_t(integer / 1e+2) % 10)
+		, char('0' + uint64_t(integer / 1e+1) % 10)
 		, char('0' + uint64_t(integer) % 10)
 		, '.'
-		, char('0' + uint64_t(fraction * 10.) % 10)
-		, char('0' + uint64_t(fraction * 100.) % 10)
-		, char('0' + uint64_t(fraction * 1000.) % 10)
-		, char('0' + uint64_t(fraction * 10000.) % 10)
-		, char('0' + uint64_t(fraction * 100000.) % 10)
-		, char('0' + uint64_t(fraction * 1000000.) % 10)
-		, char('0' + uint64_t(fraction * 10000000.) % 10)
-		, char('0' + uint64_t(fraction * 100000000.) % 10)
-		, char('0' + uint64_t(fraction * 1000000000.) % 10)
-		, char('0' + uint64_t(fraction * 10000000000.) % 10)
-		, char('0' + uint64_t(fraction * 100000000000.) % 10)
-		, char('0' + uint64_t(fraction * 1000000000000.) % 10)
-		, char('0' + uint64_t(fraction * 10000000000000.) % 10)
-		, char('0' + uint64_t(fraction * 100000000000000.) % 10)
-		, char('0' + uint64_t(fraction * 1000000000000000.) % 10)
+		, char('0' + uint64_t(fraction * 1e+1) % 10)
+		, char('0' + uint64_t(fraction * 1e+2) % 10)
+		, char('0' + uint64_t(fraction * 1e+3) % 10)
+		, char('0' + uint64_t(fraction * 1e+4) % 10)
+		, char('0' + uint64_t(fraction * 1e+5) % 10)
+		, char('0' + uint64_t(fraction * 1e+6) % 10)
+		, char('0' + uint64_t(fraction * 1e+7) % 10)
+		, char('0' + uint64_t(fraction * 1e+8) % 10)
+		, char('0' + uint64_t(fraction * 1e+9) % 10)
+		, char('0' + uint64_t(fraction * 1e+10) % 10)
+		, char('0' + uint64_t(fraction * 1e+12) % 10)
+		, char('0' + uint64_t(fraction * 1e+13) % 10)
+		, char('0' + uint64_t(fraction * 1e+14) % 10)
+		, char('0' + uint64_t(fraction * 1e+15) % 10)
+		, char('0' + uint64_t(fraction * 1e+16) % 10)
+		, char('0' + uint64_t(fraction * 1e+17) % 10)
+		, '\0'
 		, '\0'
 		, '\0'
 		, '\0'
@@ -462,16 +496,16 @@ double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, do
 	};
 	int i = c_min_integer_index;
 	int j = c_max_fraction_index;
-	for(; i < c_max_integer_index && string[i] == '0'; ++i);
+	for(; i < c_max_integer_index && buffer[i] == '0'; ++i);
 	// trim the rightmost zeros
 	if(precision_ < 0)
 	{
-		for(; j > c_min_fraction_index && string[j] == '0'; --j);
+		for(; j > c_min_fraction_index && buffer[j] == '0'; --j);
 		// round the rightmost nines
 		if(j == c_max_fraction_index)
 		{
 			int nines_i = j;
-			for(nines_i = j; nines_i >= c_min_fraction_index && string[nines_i] == '9'; --nines_i);
+			for(nines_i = j; nines_i >= c_min_fraction_index && buffer[nines_i] == '9'; --nines_i);
 			if(nines_i < j)
 				precision_ = nines_i - c_min_fraction_index + 1;
 		}
@@ -480,12 +514,12 @@ double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, do
 	if(precision_ >= 0)
 	{
 		int const precision_index = c_min_fraction_index + std::max(std::min(precision_, c_max_precision), 0);
-		for(; j > precision_index && string[j] == '0'; --j);
+		for(; j > precision_index && buffer[j] == '0'; --j);
 		// rounding right to zeros
 		int carry = 0;
 		for(; j >= precision_index; --j)
 		{
-			char & chr = string[j];
+			char & chr = buffer[j];
 			int digit = int(chr - '0') + carry;
 			if(digit >= 5)
 				carry = 1;
@@ -496,7 +530,7 @@ double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, do
 		// continue rounding fraction
 		for(int k = j; carry > 0 && k >= c_min_fraction_index; --k)
 		{
-			char & chr = string[k];
+			char & chr = buffer[k];
 			int digit = int(chr - '0') + carry;
 			if(digit > 9)
 			{
@@ -516,7 +550,7 @@ double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, do
 			int k = c_max_integer_index;
 			for(; carry > 0 && k >= min_integer_index; --k)
 			{
-				char & chr = string[k];
+				char & chr = buffer[k];
 				int digit = int(chr - '0') + carry;
 				if(digit > 9)
 				{
@@ -535,7 +569,7 @@ double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, do
 	}
 	// negative sign
 	if(negative)
-		string[--i] = '-';
+		buffer[--i] = '-';
 	if(precision_ == 0) // 0 precision => remove decimal point
 		--j;
 	if(scientific_notation)
@@ -549,37 +583,37 @@ double_to_string(double rhs, int precision_ = -1, double min_sci_value = .01, do
 			, char('0' + (exponent_) % 10)
 			, '\0'
 		};
-		if(j == c_min_fraction_index && string[j] == '0')
+		if(j == c_min_fraction_index && buffer[j] == '0')
 			j -= 2;
-		string[++j] = 'e';
-		string[++j] = negative_exp ? '-' : '+';
+		buffer[++j] = 'e';
+		buffer[++j] = negative_exp ? '-' : '+';
 		size_t exp_i = exp_str[0] == '0' ? (exp_str[1] == '0' ? 2 : 1) : 0;
 		for(size_t i = exp_i; i < 3; ++i)
-			string[++j] = exp_str[i];
+			buffer[++j] = exp_str[i];
 	}
-	string[++j] = '\0';
-	return { &string[i] };
+	buffer[++j] = '\0';
+	return { &buffer[i], &buffer[j] };
 }
 
 template <class C>
 static C &
-access(base_ptr_t & base_ptr) noexcept(false)
+get(base_ptr_t & base_ptr) noexcept(false)
 {
 	if(!base_ptr)
-		throw std::runtime_error("json::access: accessing null base_ptr");
+		throw std::runtime_error("json::get: accessing null base_ptr");
 	if(CType<C>::value != base_ptr->type())
-		throw std::runtime_error("json::access: wrong cast, base_ptr");
+		throw std::runtime_error("json::get: wrong cast, base_ptr");
 	return *static_cast<C *>(base_ptr.get());
 }
 
 template <class C>
 static C const &
-access(base_ptr_t const & base_ptr) noexcept(false)
+get(base_ptr_t const & base_ptr) noexcept(false)
 {
 	if(!base_ptr)
-		throw std::runtime_error("json::access: accessing null base_ptr");
+		throw std::runtime_error("json::get: accessing null base_ptr");
 	if(CType<C>::value != base_ptr->type())
-		throw std::runtime_error("json::access: wrong cast, base_ptr");
+		throw std::runtime_error("json::get: wrong cast, base_ptr");
 	return *static_cast<C const *>(base_ptr.get());
 }
 
@@ -773,7 +807,7 @@ class Array final : public Base
 		auto it = m_elements.begin();
 		for(; it != m_elements.end(); ++it)
 		{
-			auto & cit = access<C>(*it);
+			auto & cit = get<C>(*it);
 			if(cit.value() == value_)
 				return &cit;
 		}
@@ -788,7 +822,7 @@ class Array final : public Base
 		auto it = m_elements.begin();
 		for(; it != m_elements.end(); ++it)
 		{
-			auto const & cit = access<C>(*it);
+			auto const & cit = get<C>(*it);
 			if(cit.value() == value_)
 				return &cit;
 		}
@@ -803,7 +837,7 @@ class Array final : public Base
 		auto it = m_elements.begin();
 		for(; it != m_elements.end(); ++it)
 		{
-			auto & cit = access<C>(*it);
+			auto & cit = get<C>(*it);
 			auto & value = cit.value();
 			if(value == old_value_)
 			{
@@ -844,7 +878,7 @@ class Array final : public Base
 	insert(T value_)
 	{
 		auto it = m_elements.insert(m_elements.end(), make_base_ptr(std::move(value_)));
-		return &access<C>(*it);
+		return &get<C>(*it);
 	}
 
 	// T must match the json type. Like int types for Integer
@@ -853,7 +887,7 @@ class Array final : public Base
 	rinsert(T const & value_)
 	{
 		auto it = m_elements.insert(m_elements.begin(), make_base_ptr(value_));
-		return &access<C>(*it);
+		return &get<C>(*it);
 	}
 
 	// T must match the json type. Like int types for Integer
@@ -866,7 +900,7 @@ class Array final : public Base
 		using C = json_t<T>;
 		for(auto it = m_elements.begin(); it != m_elements.end();)
 		{
-			auto const & e = access<C>(*it);
+			auto const & e = get<C>(*it);
 			if(e.value() == value_ && skip_-- <= 0)
 			{
 				auto cur_it = it;
@@ -889,7 +923,7 @@ class Array final : public Base
 			return;
 		for(auto it = m_elements.begin(); it != m_elements.end(); ++it)
 		{
-			auto const & e = access<C>(*it);
+			auto const & e = get<C>(*it);
 			if(&e == element_ptr)
 			{
 				auto cur_it = it;
@@ -913,7 +947,7 @@ class Array final : public Base
 		using C = json_t<T>;
 		for(auto it = m_elements.begin(); it != m_elements.end(); ++it)
 		{
-			auto const & e = access<C>(*it);
+			auto const & e = get<C>(*it);
 			if(e.value() == value_)
 				return it;
 		}
@@ -927,7 +961,7 @@ class Array final : public Base
 		using C = typename json_t<T>;
 		for(auto it = m_elements.cbegin(); it != m_elements.cend(); ++it)
 		{
-			auto const & e = access<C>(*it);
+			auto const & e = get<C>(*it);
 			if(e.value() == value_)
 				return it;
 		}
@@ -1022,7 +1056,7 @@ class Object final : public Base
 	// get("user.name") would look for the object entry with the key 'name' 
 	//  in the root object entry with the key 'user' 
 	base_ptr_t *
-	get(string_t id) noexcept
+	get(string_t const & id) noexcept
 	{
 		size_t index_0   = 0;
 		size_t index_1   = std::min(id.find('.', 0), id.size());
@@ -1048,7 +1082,7 @@ class Object final : public Base
 	}
 
 	base_ptr_t const *
-	get(string_t id) const noexcept
+	get(string_t const & id) const noexcept
 	{
 		size_t index_0   = 0;
 		size_t index_1   = std::min(id.find('.', 0), id.size());
@@ -1070,6 +1104,24 @@ class Object final : public Base
 				return nullptr;
 		} 
 		return &(it->second);
+	}
+	
+	base_ptr_t &
+	operator[](string_t const & id) noexcept(false)
+	{
+		auto * base_ptr_ = this->get(id);
+		if(!base_ptr_)
+			throw std::runtime_error("json::Object::operator[]: entry not found");
+		return *base_ptr_;
+	}
+	
+	base_ptr_t const &
+	operator[](string_t const & id) const noexcept(false)
+	{
+		auto * base_ptr_ = this->get(id);
+		if(!base_ptr_)
+			throw std::runtime_error("json::Object::operator[]: entry not found");
+		return *base_ptr_;
 	}
 
 	// C must be a valid json type such as Null, Boolean or String
@@ -1327,7 +1379,7 @@ print(std::ostream & ost, json::Object const & jobject, size_t depth_)
 		{
 			case Type::Array:
 			{
-				auto const & jarray = access<Array>(value);
+				auto const & jarray = get<Array>(value);
 				auto const & elements_ = jarray.elements();
 				Type first_type = Type::Base;
 				if(elements_.size() >= 1)
@@ -1341,7 +1393,7 @@ print(std::ostream & ost, json::Object const & jobject, size_t depth_)
 			}
 			case Type::Object:
 			{
-				auto const & jobject = access<Object>(value);
+				auto const & jobject = get<Object>(value);
 				auto const & entries_ = jobject.entries();
 				if(entries_.size() > 0)
 					print_newline(ost);
@@ -1544,8 +1596,12 @@ parse(std::istream & ist, json::Number & jnumber, char first_char, bool first_ch
 	char buffer[40] { '\0' };
 	char * it    = &buffer[0];
 	char * last_ = &buffer[std::size(buffer) - 1];
+	char * sign_it     = nullptr;
+	char * exponent_it = nullptr;
 	bool reading_first_char = true;
 	bool sign_              = true;
+	bool exponent_          = false;
+	bool exponent_sign_     = false;
 	bool decimal_point_     = false;
 	bool continue_          = true;
 	for(; it < last_; ++it)
@@ -1589,15 +1645,48 @@ parse(std::istream & ist, json::Number & jnumber, char first_char, bool first_ch
 				if(reading_first_char)
 					reading_first_char = false;
 				break;
+			case 'n':
+				if(reading_first_char)
+				{
+					reading_first_char = true;
+					char null_buffer[5] { ch, '\0', '\0', '\0', '\0' };
+					ist.read(&null_buffer[1], 3);
+					if(0 == strcmp(null_buffer, "null"))
+					{
+						jnumber.number() = number_t(std::numeric_limits<double>::quiet_NaN());
+						return ist;
+					}
+					continue_ = false;
+					break;
+				}
+			case 'E':
+			case 'e':
+				if(!exponent_)
+				{
+					*it = ch;
+					exponent_it = it;
+					exponent_ = true;
+				}
+				else
+					continue_ = false;
+				break;
 			case '+':
 			case '-':
 				if(reading_first_char)
 				{
 					*it = ch;
+					sign_it = it;
 					sign_ = true;
 					reading_first_char = false;
-					break;
 				}
+				else if(exponent_ && !exponent_sign_)
+				{
+					*it = ch;
+					exponent_sign_ = true;
+				}
+				else
+					continue_ = false;
+				break;
 			default:
 				continue_ = false;
 				break;
@@ -1606,6 +1695,13 @@ parse(std::istream & ist, json::Number & jnumber, char first_char, bool first_ch
 			break;
 	}
 	*it = '\0';
+	if(exponent_it)
+	{
+		int exponent_ = atoi(&exponent_it[1]);
+		int sign_     = (sign_it && *sign_it == '-') ? -1 : 1;
+		if(exponent_ == 999) // inf
+			jnumber.number() = sign_ * std::numeric_limits<double>::infinity();
+	}
 	jnumber.number() = number_t(std::atof(buffer));
 	return ist;
 }
