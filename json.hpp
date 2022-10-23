@@ -311,8 +311,8 @@ static inline base_ptr_t make_base_ptr(Boolean value_);
 static inline base_ptr_t make_base_ptr(boolean_t value_);
 static inline base_ptr_t make_base_ptr(Integer value_);
 static inline base_ptr_t make_base_ptr(integer_t value_);
-static inline base_ptr_t make_base_ptr(Number value_);
-static inline base_ptr_t make_base_ptr(number_t value_);
+static inline base_ptr_t make_base_ptr(Number value_, int precision_);
+static inline base_ptr_t make_base_ptr(number_t value_, int precision_);
 static inline base_ptr_t make_base_ptr(String value_);
 static inline base_ptr_t make_base_ptr(string_t value_);
 static inline base_ptr_t make_base_ptr(char const * value_);
@@ -391,6 +391,221 @@ template <typename V> struct JSONType<std::map<string_t,V>>           { using ty
 template <typename V> struct JSONType<std::unordered_map<string_t,V>> { using type = Object; };
 
 template <typename T> using json_t = typename JSONType<T>::type;
+
+
+static inline bool 
+is_little_endian() noexcept
+{
+	static constexpr union U { uint32_t ui32_ = 0xABCDEF12; uint8_t bytes[4]; } u {};
+	return u.bytes[0] == 0x12;
+}
+
+static constexpr char
+hex_char(uint8_t value) 
+{
+	if(value <= 9)
+		return '0' + value;
+	else if(value <= 15)
+		return 'a' + value - 10;
+	else
+		return '0';
+}
+
+static constexpr uint8_t  
+hex_value(char hex_char) 
+{
+	if(hex_char >= '0' && hex_char <= '9')
+		return uint8_t(hex_char - '0');
+	else if(hex_char >= 'a' && hex_char <= 'f')
+		return 10 + uint8_t(hex_char - 'a');
+	else
+		return 0;
+}
+
+template <typename T>
+static string_t
+data_to_hex_string(T const & data)
+{
+	constexpr size_t byte_length = 2;
+	string_t hex_string(sizeof(T) * byte_length, '\0');
+	char * buffer = &hex_string[0];
+	uint8_t const * data_bytes = reinterpret_cast<uint8_t const *>(&data);
+	if(is_little_endian())
+	{
+		for(size_t i = 0; i < sizeof(T); ++i)
+		{
+			size_t k = sizeof(T) - i - 1;
+			buffer[i * byte_length]     = hex_char(data_bytes[k] / 0x0F);
+			buffer[i * byte_length + 1] = hex_char(data_bytes[k] % 0x0F);
+		}
+	}
+	else
+	{
+		for(size_t i = 0; i < sizeof(T); ++i)
+		{
+			buffer[i * byte_length]     = hex_char(data_bytes[i] / 0x0F);
+			buffer[i * byte_length + 1] = hex_char(data_bytes[i] % 0x0F);
+		}
+	}
+	return std::move(hex_string);
+}
+
+template <typename T>
+static T
+hex_string_to_data(string_t const & hex_string)
+{
+	constexpr size_t byte_length = 2;
+	char const * buffer = &hex_string[0];
+	T data;
+	uint8_t * data_bytes = reinterpret_cast<uint8_t *>(&data);
+	if(is_little_endian())
+	{
+		for(size_t i = 0; i < sizeof(T); ++i)
+		{
+			size_t k = sizeof(T) - i - 1;
+			data_bytes[k] = hex_value(buffer[i * byte_length]) * 0x0F 
+				+ hex_value(buffer[i * byte_length + 1]);
+		}
+	}
+	else
+	{
+		for(size_t i = 0; i < sizeof(T); ++i)
+		{
+			data_bytes[i] = hex_value(buffer[i * byte_length]) * 0x0F 
+				+ hex_value(buffer[i * byte_length + 1]);
+		}
+	}
+	return std::move(data);
+}
+
+static string_t
+process(string_t const & string_)
+{
+	size_t const string_size = string_.size();
+	string_t res_string_(string_size, '\0');
+	size_t i = 0, j = 0;
+	for(; i < string_size; ++i)
+	{
+		char ch = string_[i];
+		if(ch == '\\')
+		{
+			ch = string_[++i];
+			switch(ch)
+			{
+				case '"':  res_string_[j++] = '"';  break;
+				case '\\': res_string_[j++] = '\\'; break;
+				case '/':  res_string_[j++] = '/';  break;
+				case 'b':  res_string_[j++] = '\b'; break;
+				case 'f':  res_string_[j++] = '\f'; break;
+				case 'n':  res_string_[j++] = '\n'; break;
+				case 'r':  res_string_[j++] = '\r'; break;
+				case 't':  res_string_[j++] = '\t'; break;
+				case 'v':  res_string_[j++] = '\v'; break;
+				case 'u':
+				{
+					if(string_size - i < 5)
+					{
+						res_string_[j++] = '\\';
+						res_string_[j++] = 'u';
+						continue;
+					}
+					else
+					{
+						++i;
+						size_t const N = 4;
+						uint8_t hbyte_[N] {};
+						int k = 0;
+						for(; k < N; ++k)
+						{
+							uint8_t uch = uint8_t(string_[i+k]);
+							hbyte_[k] = hex_value(uch);
+						}
+						uint16_t unicode_ = 0;
+						for(int l = 0; l < N; ++l)
+							unicode_ |= uint16_t(hbyte_[k-l-1]) << (l * 4);
+						if(unicode_ <= 0x007F)
+							res_string_[j++] = char(unicode_ & 0x7F);
+						else if(unicode_ <= 0x007FF)
+						{
+							res_string_[j++] = char(0xC0 | ((unicode_ >> 6) & 0x1F));
+							res_string_[j++] = char(0x80 | (unicode_ & 0x3F));
+						}
+						else if(unicode_ <= 0xFFFF)
+						{
+							res_string_[j++] = char(0xE0 | ((unicode_ >> 12) & 0x0F));
+							res_string_[j++] = char(0x80 | ((unicode_ >> 6) & 0x3F));
+							res_string_[j++] = char(0x80 | (unicode_ & 0x3F));
+						}
+						else
+						{
+							res_string_[j++] = '\\';
+							res_string_[j++] = 'u';
+							continue;
+						}
+						i += 3;
+					}
+					break;
+				}
+				case 'U':
+				{
+					if(string_size - i < 7)
+					{
+						res_string_[j++] = '\\';
+						res_string_[j++] = 'u';
+						continue;
+					}
+					else
+					{
+						++i;
+						size_t const N = 6;
+						uint8_t hbyte_[N] {};
+						int k = 0;
+						for(; k < N; ++k)
+						{
+							uint8_t uch = uint8_t(string_[i+k]);
+							hbyte_[k] = hex_value(uch);
+						}
+						uint32_t unicode_ = 0;
+						for(int l = 0; l < N; ++l)
+							unicode_ |= uint32_t(hbyte_[k-l-1]) << (l * 4);
+						if(unicode_ <= 0x007F)
+							res_string_[j++] = char(unicode_ & 0x7F);
+						else if(unicode_ <= 0x007FF)
+						{
+							res_string_[j++] = char(0xC0 | ((unicode_ >> 6) & 0x1F));
+							res_string_[j++] = char(0x80 | (unicode_ & 0x3F));
+						}
+						else if(unicode_ <= 0xFFFF)
+						{
+							res_string_[j++] = char(0xE0 | ((unicode_ >> 12) & 0x0F));
+							res_string_[j++] = char(0x80 | ((unicode_ >> 6) & 0x3F));
+							res_string_[j++] = char(0x80 | (unicode_ & 0x3F));
+						}
+						else if(unicode_ <= 0x10FFFF)
+						{
+							res_string_[j++] = char(0xF0 | ((unicode_ >> 18) & 0x07));
+							res_string_[j++] = char(0x80 | ((unicode_ >> 12) & 0x3F));
+							res_string_[j++] = char(0x80 | ((unicode_ >> 6) & 0x3F));
+							res_string_[j++] = char(0x80 | (unicode_ & 0x3F));
+						}
+						else
+						{
+							res_string_[j++] = '\\';
+							res_string_[j++] = 'U';
+							continue;
+						}
+						i += 5;
+					}
+					break;
+				}
+			}
+		}
+		else
+			res_string_[j++] = ch;
+	}
+	res_string_.resize(j);
+	return std::move(res_string_);
+}
 
 // precision < 0 means max precision but cut out the right-most zeros
 // min_sci_value is the minimum value where the output will switch to scientific notation
@@ -602,7 +817,7 @@ get(base_ptr_t & base_ptr) noexcept(false)
 	if(!base_ptr)
 		throw std::runtime_error("json::get: accessing null base_ptr");
 	if(CType<C>::value != base_ptr->type())
-		throw std::runtime_error("json::get: wrong cast, base_ptr");
+		throw std::runtime_error("json::get: wrong cast");
 	return *static_cast<C *>(base_ptr.get());
 }
 
@@ -613,7 +828,7 @@ get(base_ptr_t const & base_ptr) noexcept(false)
 	if(!base_ptr)
 		throw std::runtime_error("json::get: accessing null base_ptr");
 	if(CType<C>::value != base_ptr->type())
-		throw std::runtime_error("json::get: wrong cast, base_ptr");
+		throw std::runtime_error("json::get: wrong cast");
 	return *static_cast<C const *>(base_ptr.get());
 }
 
@@ -653,6 +868,9 @@ class Null final : public Base
 	value_t const null()  const noexcept { return json::null; }
 	value_t       value()       noexcept { return json::null; }
 	value_t const value() const noexcept { return json::null; }
+	
+	operator value_t () const noexcept { return json::null; }
+
 };
 
 class Boolean final : public Base 
@@ -679,6 +897,9 @@ class Boolean final : public Base
 	boolean_t const & boolean() const noexcept { return m_boolean; }
 	value_t         & value()         noexcept { return m_boolean; }
 	value_t   const & value()   const noexcept { return m_boolean; }
+	
+	operator value_t const & () const noexcept { return m_boolean; }
+
 };
 
 class Integer final : public Base 
@@ -705,11 +926,15 @@ class Integer final : public Base
 	integer_t const & integer() const noexcept { return m_integer; }
 	value_t         & value()         noexcept { return m_integer; }
 	value_t   const & value()   const noexcept { return m_integer; }
+	
+	operator value_t const & () const noexcept { return m_integer; }
+
 };
 
 class Number final : public Base 
 {
-	number_t m_number {};
+	number_t m_number    {};
+	int      m_precision = -1;
 
  public:
 	using value_t = number_t;
@@ -718,8 +943,9 @@ class Number final : public Base
 	~Number()              = default;
 	Number(Number &&)      = default;
 	Number(Number const &) = delete;
-	Number(number_t number_)
-		: m_number { number_ }
+	Number(number_t number_, int precision_ = -1)
+		: m_number    { number_ }
+		, m_precision { precision_ }
 	{}
 	
 	Number & operator=(Number &&)      = default;
@@ -727,10 +953,15 @@ class Number final : public Base
 	
 	Type type() const noexcept override { return Type::Number; }
 
-	number_t       & number()       noexcept { return m_number; }
-	number_t const & number() const noexcept { return m_number; }
-	value_t        & value()        noexcept { return m_number; }
-	value_t  const & value()  const noexcept { return m_number; }
+	number_t       & number()           noexcept { return m_number; }
+	number_t const & number()     const noexcept { return m_number; }
+	value_t        & value()            noexcept { return m_number; }
+	value_t  const & value()      const noexcept { return m_number; }
+	int            & precision()        noexcept { return m_precision; }
+	int      const & precision()  const noexcept { return m_precision; }
+
+	operator value_t const & () const noexcept { return m_number; }
+
 };
 
 class String final : public Base 
@@ -760,6 +991,8 @@ class String final : public Base
 	string_t const & string() const noexcept { return m_string; }
 	value_t        & value()        noexcept { return m_string; }
 	value_t  const & value()  const noexcept { return m_string; }
+
+	operator value_t const & () const noexcept { return m_string; }
 
 };
 
@@ -872,6 +1105,20 @@ class Array final : public Base
 		return *it;
 	}
 
+	// @refer at(size_t)
+	array_element_t &
+	operator[](size_t index)
+	{
+		return this->at(index);
+	}
+
+	// @refer at(size_t) const
+	array_element_t const &
+	operator[](size_t index) const
+	{
+		return this->at(index);
+	}
+
 	// T must match the json type. Like int types for Integer
 	template <typename T, class C = json_t<T>>
 	C *
@@ -968,6 +1215,15 @@ class Array final : public Base
 		return m_elements.cend();
 	}
 
+	// removes all entries
+	void
+	clear() noexcept
+	{
+		m_elements.clear();
+	}
+
+	size_t size() const noexcept { return m_elements.size(); }
+
 	array_elements_t       & elements()       noexcept { return m_elements; }
 	array_elements_t const & elements() const noexcept { return m_elements; }
 	value_t                & value()          noexcept { return m_elements; }
@@ -981,7 +1237,7 @@ class Object final : public Base
 
 	template <typename... Args>
 	base_ptr_t *
-	_set(bool override_, string_t id, Args &&... args) noexcept
+	_set(bool override_, string_t const & id, Args &&... args) noexcept
 	{
 		size_t index_0   = 0;
 		size_t index_1   = std::min(id.find('.', 0), id.size());
@@ -1000,12 +1256,9 @@ class Object final : public Base
 			if(it == m_entries.end())
 				return nullptr;
 		}
-		json::object_entries_t * cur_object_entries = &m_entries;
+		json::object_entries_t * cur_entries = &m_entries;
 		while(index_0 < id.size())
 		{
-			index_1 = std::min(id.find('.', index_0), id.size());
-			string_t cur_id = id.substr(index_0, index_1 - index_0);
-			index_0 = index_1 + 1;
 			if(it->second->type() != Type::Object)
 			{
 				if(override_)
@@ -1013,18 +1266,21 @@ class Object final : public Base
 				else
 					return nullptr;
 			}
-			cur_object_entries = &static_cast<json::Object *>(it->second.get())->entries();
-			it = cur_object_entries->find(cur_id);
-			if(it == cur_object_entries->end())
+			index_1 = std::min(id.find('.', index_0), id.size());
+			string_t cur_id = id.substr(index_0, index_1 - index_0);
+			index_0 = index_1 + 1;
+			cur_entries = &static_cast<json::Object *>(it->second.get())->entries();
+			it = cur_entries->find(cur_id);
+			if(it == cur_entries->end())
 			{
 				if(index_0 < id.size())
-					it = cur_object_entries->insert(object_entry_t(cur_id, make_base_ptr(json::Object()))).first;
+					it = cur_entries->insert(object_entry_t(cur_id, make_base_ptr(json::Object()))).first;
 				else
 				{
-					it = cur_object_entries->insert(object_entry_t(cur_id, make_base_ptr(std::forward<Args>(args)...))).first;
+					it = cur_entries->insert(object_entry_t(cur_id, make_base_ptr(std::forward<Args>(args)...))).first;
 					return &(it->second);
 				}
-				if(it == cur_object_entries->end())
+				if(it == cur_entries->end())
 					return nullptr;
 			}
 		}
@@ -1052,9 +1308,10 @@ class Object final : public Base
 
 	Type type() const noexcept override { return Type::Object; }
 
-	// id must be an aggregate of object keys separated by '.'
+	// id must be an aggregate of entry ids separated by '.'
 	// get("user.name") would look for the object entry with the key 'name' 
 	//  in the root object entry with the key 'user' 
+	// id: "<root-entry0>.<sub-entry1>.<target-entry>"
 	base_ptr_t *
 	get(string_t const & id) noexcept
 	{
@@ -1065,7 +1322,7 @@ class Object final : public Base
 		auto it = m_entries.find(root_id);
 		if(it == m_entries.end())
 			return nullptr;
-		// consequently locate the entries with the sub ids
+		// consecutively locate the entries with the sub ids
 		while(index_0 < id.size())
 		{
 			index_1 = std::min(id.find('.', index_0), id.size());
@@ -1073,14 +1330,15 @@ class Object final : public Base
 			index_0 = index_1 + 1;
 			if(it->second->type() != Type::Object)
 				return nullptr;
-			auto & cur_object_entries = static_cast<json::Object *>(it->second.get())->entries();
-			it = cur_object_entries.find(cur_id);
-			if(it == cur_object_entries.end())
+			auto & cur_entries = static_cast<json::Object *>(it->second.get())->entries();
+			it = cur_entries.find(cur_id);
+			if(it == cur_entries.end())
 				return nullptr;
 		} 
 		return &(it->second);
 	}
 
+	// @refer get(string_t const &)
 	base_ptr_t const *
 	get(string_t const & id) const noexcept
 	{
@@ -1098,36 +1356,19 @@ class Object final : public Base
 			index_0 = index_1 + 1;
 			if(it->second->type() != Type::Object)
 				return nullptr;
-			auto & cur_object_entries = static_cast<json::Object const *>(it->second.get())->entries();
-			it = cur_object_entries.find(cur_id);
-			if(it == cur_object_entries.end())
+			auto & cur_entries = static_cast<json::Object const *>(it->second.get())->entries();
+			it = cur_entries.find(cur_id);
+			if(it == cur_entries.end())
 				return nullptr;
 		} 
 		return &(it->second);
 	}
 	
-	base_ptr_t &
-	operator[](string_t const & id) noexcept(false)
-	{
-		auto * base_ptr_ = this->get(id);
-		if(!base_ptr_)
-			throw std::runtime_error("json::Object::operator[]: entry not found");
-		return *base_ptr_;
-	}
-	
-	base_ptr_t const &
-	operator[](string_t const & id) const noexcept(false)
-	{
-		auto * base_ptr_ = this->get(id);
-		if(!base_ptr_)
-			throw std::runtime_error("json::Object::operator[]: entry not found");
-		return *base_ptr_;
-	}
-
+	// Get and cast to the desired type if the entry is available. 
 	// C must be a valid json type such as Null, Boolean or String
 	template <class C>
 	C *
-	get(string_t id) noexcept
+	get(string_t const &) noexcept
 	{
 		auto * base_ptr = get(id);
 		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
@@ -1135,9 +1376,10 @@ class Object final : public Base
 		return static_cast<C *>(base_ptr->get());
 	}
 
+	// @refer get<C>(string_t const &)
 	template <class C>
 	C const *
-	get(string_t id) const noexcept
+	get(string_t const &) const noexcept
 	{
 		auto const * base_ptr = get(id);
 		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
@@ -1148,7 +1390,7 @@ class Object final : public Base
 	// C must be a valid json type such as Null, Boolean or String
 	template <class C, typename V = typename C::value_t>
 	V *
-	get_value(string_t id) noexcept
+	get_value(string_t const &) noexcept
 	{
 		auto * base_ptr = get(id);
 		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
@@ -1158,7 +1400,7 @@ class Object final : public Base
 
 	template <class C, typename V = typename C::value_t>
 	V const *
-	get_value(string_t id) const noexcept
+	get_value(string_t const &) const noexcept
 	{
 		auto const * base_ptr = get(id);
 		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
@@ -1166,24 +1408,121 @@ class Object final : public Base
 		return &static_cast<C const *>(base_ptr->get())->value();
 	}
 
-	// Caution: overrides parents that are not of type Object.
-	template <typename... Args>
-	inline base_ptr_t *
-	set(string_t id, Args &&... args) noexcept
+	// Caution: creates the non-target entries safely but overrides the target entry 
+	//   with type C if it is of a different type.
+	// If any of the non-target entries exist and have a non-object type 
+	//   then an exception will be thrown.
+	// If the target entry is empty then a Null is constructed and returned.
+	base_ptr_t &
+	at(string_t const & id) noexcept(false)
 	{
-		return _set(true, std::move(id), std::forward<Args>(args)...);
+		size_t index_0   = 0;
+		size_t index_1   = std::min(id.find('.', 0), id.size());
+		string_t root_id = id.substr(index_0, index_1 - index_0);
+		index_0 = index_1 + 1;
+		auto it = m_entries.find(root_id);
+		if(it == m_entries.end())
+		{
+			if(index_0 < id.size())
+				it = m_entries.insert(object_entry_t(root_id, make_base_ptr(json::Object()))).first;
+			else
+			{
+				it = m_entries.insert(object_entry_t(root_id, make_base_ptr())).first;
+				return it->second;
+			}
+		}
+		// consecutively locate or create the entries with the sub ids
+		while(index_0 < id.size())
+		{
+			if(it->second->type() != Type::Object)
+				throw std::runtime_error("json::Object::at: sub-entry occupied by a non-object");
+			index_1 = std::min(id.find('.', index_0), id.size());
+			string_t cur_id = id.substr(index_0, index_1 - index_0);
+			index_0 = index_1 + 1;
+			auto & cur_entries = static_cast<json::Object *>(it->second.get())->entries();
+			it = cur_entries.find(cur_id);
+			if(it == cur_entries.end())
+			{
+				if(index_0 < id.size())
+					it = cur_entries.insert(object_entry_t(cur_id, make_base_ptr(json::Object()))).first;
+				else
+					it = cur_entries.insert(object_entry_t(cur_id, make_base_ptr())).first;
+			}
+		}
+		return it->second;
+	}
+	
+	// Gets the base_ptr at id if it exists.
+	// If it does not exists then an exception will be thrown
+	base_ptr_t const &
+	at(string_t const & id) const noexcept(false)
+	{
+		auto * base_ptr_ = this->get(id);
+		if(!base_ptr_)
+			throw std::runtime_error("json::Object::at: entry not found");
+		return *base_ptr_;
 	}
 
-	// no overriding parents that are not of type Object.
+	// Caution: creates the non-target entries safely but overrides the target entry 
+	//   with type C if it is of a different type.  
+	// If any of the non-target entries exist and have a non-object type 
+	//   then an exception will be thrown.
+	template <class C>
+	C &
+	at(string_t const & id) noexcept(false)
+	{
+		auto & base_ptr_ = this->at(id);
+		if(CType<C>::value != base_ptr_->type())
+			base_ptr_ = make_base_ptr(C());
+		return *static_cast<C *>(base_ptr_.get());
+	}
+
+	// Gets the base_ptr at id if it exists.
+	// If it does not exists then an exception will be thrown
+	// If C does not have the same type as the type at the id
+	//   then an exception will be thown
+	template <class C>
+	C const &
+	at(string_t const & id) const noexcept(false)
+	{
+		auto const & base_ptr_ = this->at(id);
+		if(CType<C>::value != base_ptr_->type())
+			throw std::runtime_error("json::Object::at: wrong cast");
+		return *static_cast<C *>(base_ptr_.get());
+	}
+
+	// @refer at(string_t &)
+	base_ptr_t &
+	operator[](string_t const & id) noexcept(false)
+	{
+		return this->at(id);
+	}
+	
+	// @refer at(string_t const &) const
+	base_ptr_t const &
+	operator[](string_t const & id) const noexcept(false)
+	{
+		return this->at(id);
+	}
+
+	// Caution: overrides non-target entries that are not of type Object.
 	template <typename... Args>
 	inline base_ptr_t *
-	set_safe(string_t id, Args &&... args) noexcept
+	set(string_t const & id, Args &&... args) noexcept
 	{
-		return _set(false, std::move(id), std::forward<Args>(args)...);
+		return _set(true, id, std::forward<Args>(args)...);
+	}
+
+	// no overriding non-target entries that are not of type Object.
+	template <typename... Args>
+	inline base_ptr_t *
+	set_safe(string_t const &, Args &&... args) noexcept
+	{
+		return _set(false, id, std::forward<Args>(args)...);
 	}
 
 	bool
-	remove(string_t id) noexcept
+	remove(string_t const & id) noexcept
 	{
 		size_t index_0   = 0;
 		size_t index_1   = std::min(id.find('.', 0), id.size());
@@ -1192,7 +1531,7 @@ class Object final : public Base
 		auto it = m_entries.find(root_id);
 		if(it == m_entries.end())
 			return false;
-		object_entries_t * cur_object_entries = &m_entries;
+		object_entries_t * cur_entries = &m_entries;
 		string_t cur_id = root_id;
 		while(index_0 < id.size())
 		{
@@ -1201,22 +1540,33 @@ class Object final : public Base
 			index_0 = index_1 + 1;
 			if(it->second->type() != Type::Object)
 				return false;
-			cur_object_entries = &static_cast<json::Object *>(it->second.get())->entries();
-			it = cur_object_entries->find(cur_id);
-			if(it == cur_object_entries->end())
+			cur_entries = &static_cast<json::Object *>(it->second.get())->entries();
+			it = cur_entries->find(cur_id);
+			if(it == cur_entries->end())
 				return false;
 		} 
-		cur_object_entries->erase(it);
+		cur_entries->erase(it);
 		return true;
 	}
 
 	// alias for remove
-	inline bool erase(string_t id) noexcept { return remove(std::move(id)); }
+	inline bool erase(string_t const & id) noexcept { return remove(id); }
+
+	// removes all entries
+	void
+	clear() noexcept
+	{
+		m_entries.clear();
+	}
+
+	size_t size() const noexcept { return m_entries.size(); }
 
 	object_entries_t       & entries()       noexcept { return m_entries; }
 	object_entries_t const & entries() const noexcept { return m_entries; }
 	value_t                & value()         noexcept { return m_entries; }
 	value_t          const & value()   const noexcept { return m_entries; }
+
+	operator value_t const & () const noexcept { return m_entries; }
 
 };
 
@@ -1240,26 +1590,87 @@ struct Entry
 
 };
 
-static inline base_ptr_t make_base_ptr()                     { return base_ptr_t(new Null()); }
+namespace detail {
+
+	template <class C>
+	struct BasePtrMaker
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Null(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Boolean>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Boolean(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Integer>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Integer(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Number>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Number(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<String>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new String(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Array>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Array(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Object>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Object(std::forward<Args>(args)...)); }
+	};
+
+
+} // namespace detail
+
+
+template <class C, typename... Args>
+static inline base_ptr_t make_base_ptr(Args &&... args)      { return detail::BasePtrMaker<C>::make(std::forward<Args>(args)...); }
 static inline base_ptr_t make_base_ptr(base_ptr_t value_)    { return std::move(value_); }
-static inline base_ptr_t make_base_ptr(Null value_)          { return base_ptr_t(new Null(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(null_t value_)        { return base_ptr_t(new Null()); }
-static inline base_ptr_t make_base_ptr(Boolean value_)       { return base_ptr_t(new Boolean(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(boolean_t value_)     { return base_ptr_t(new Boolean(value_)); }
-static inline base_ptr_t make_base_ptr(Integer value_)       { return base_ptr_t(new Integer(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(integer_t value_)     { return base_ptr_t(new Integer(value_)); }
+static inline base_ptr_t make_base_ptr()                     { return detail::BasePtrMaker<Null>::make(); }
+static inline base_ptr_t make_base_ptr(Null value_)          { return detail::BasePtrMaker<Null>::make(); }
+static inline base_ptr_t make_base_ptr(null_t value_)        { return detail::BasePtrMaker<Null>::make(); }
+static inline base_ptr_t make_base_ptr(Boolean value_)       { return detail::BasePtrMaker<Boolean>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(boolean_t value_)     { return detail::BasePtrMaker<Boolean>::make(value_); }
 template <typename T, std::enable_if_t<std::is_integral<T>::value,bool> = true>
-static inline base_ptr_t make_base_ptr(T value_)             { return base_ptr_t(new Integer(integer_t(value_))); }
-static inline base_ptr_t make_base_ptr(Number value_)        { return base_ptr_t(new Number(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(number_t value_)      { return base_ptr_t(new Number(value_)); }
+static inline base_ptr_t make_base_ptr(T value_)             { return detail::BasePtrMaker<Integer>::make(integer_t(value_)); }
+static inline base_ptr_t make_base_ptr(Integer value_)       { return detail::BasePtrMaker<Integer>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(integer_t value_)     { return detail::BasePtrMaker<Integer>::make(value_); }
 template <typename T, std::enable_if_t<std::is_floating_point<T>::value,bool> = true>
-static inline base_ptr_t make_base_ptr(T value_)             { return base_ptr_t(new Number(number_t(value_))); }
-static inline base_ptr_t make_base_ptr(String value_)        { return base_ptr_t(new String(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(string_t value_)      { return base_ptr_t(new String(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(char const * value_)  { return base_ptr_t(new String(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(char * value_)        { return base_ptr_t(new String(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(Array value_)         { return base_ptr_t(new Array(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(Object value_)        { return base_ptr_t(new Object(std::move(value_))); }
+static inline base_ptr_t make_base_ptr(T value_)        { return detail::BasePtrMaker<Number>::make(number_t(value_)); }
+static inline base_ptr_t make_base_ptr(Number value_)   { return detail::BasePtrMaker<Number>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(number_t value_) { return detail::BasePtrMaker<Number>::make(value_); }
+template <typename T, std::enable_if_t<std::is_floating_point<T>::value,bool> = true>
+static inline base_ptr_t make_base_ptr(T value_, int precision_)        { return detail::BasePtrMaker<Number>::make(number_t(value_), precision_); }
+static inline base_ptr_t make_base_ptr(Number value_, int precision_)   { return detail::BasePtrMaker<Number>::make(std::move(value_), precision_); }
+static inline base_ptr_t make_base_ptr(number_t value_, int precision_) { return detail::BasePtrMaker<Number>::make(value_, precision_); }
+static inline base_ptr_t make_base_ptr(String value_)        { return detail::BasePtrMaker<String>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(string_t value_)      { return detail::BasePtrMaker<String>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(char const * value_)  { return detail::BasePtrMaker<String>::make(value_); }
+static inline base_ptr_t make_base_ptr(char * value_)        { return detail::BasePtrMaker<String>::make(value_); }
+static inline base_ptr_t make_base_ptr(Array value_)         { return detail::BasePtrMaker<Array>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(Object value_)        { return detail::BasePtrMaker<Object>::make(std::move(value_)); }
 
 static inline void 
 print_padding(std::ostream & ost, size_t depth_)
@@ -1303,7 +1714,7 @@ print(std::ostream & ost, json::Integer const & jinteger)
 static std::ostream &
 print(std::ostream & ost, json::Number const & jnumber)
 {
-	return ost << double_to_string(jnumber.number());
+	return ost << double_to_string(jnumber.number(), jnumber.precision());
 }
 
 static std::ostream &
@@ -1737,13 +2148,17 @@ parse(std::istream & ist, json::String & jstring, bool skip_opening_check) noexc
 }
 
 static std::istream &
-parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
+parse(std::istream & ist, json::Entry & jentry, char & ch, bool first_char_read = false) noexcept(false)
 {
 	// read "key": value pairs
 	if(!ist.eof())
 	{
+		if(!_skip_spaces(ist, ch, first_char_read))
+			throw std::runtime_error("json::parse: end of stream.");
+		if(first_char_read && ch == '}')
+			return ist;
 		json::String key;
-		parse(ist, key);
+		parse(ist, key, first_char_read && ch == '"');
 		// skip white-spaces until ':' is reached
 		if(!_skip_spaces(ist, ch))
 			throw std::runtime_error("json::parse: end of stream.");
@@ -1792,41 +2207,27 @@ parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
 			jentry.value = make_base_ptr(std::move(value));
 			ist.read(&ch, 1);
 		}
-		else if(std::isdigit(ch) || ch == '+' || ch == '-' || ch == '.') // integer or floating point number
+		else if(std::isdigit(ch) || ch == '+' || ch == '-' || ch == '.' || ch == 'e') // integer or floating point number
 		{
-			size_t decimal_points = ch == '.' ? 1 : 0;
-			size_t positive_signs = ch == '+' ? 1 : 0;
-			size_t negative_signs = ch == '-' ? 1 : 0;
+			bool decimal_point = ch == '.';
+			bool exponent_ = false;
+			bool exponent_sign_ = false;
+			if(ch == 'e' )
+				throw std::runtime_error("json::parse: At least one digit required before 'e'.");
 			string_t buffer;
 			buffer += ch;
-			auto digits = 0;
-			bool scientific_ = false;
-			bool scientific_sign_ = false;
 			bool continue_ = true;
 			while(continue_)
 			{
 				if(ist.eof())
 					throw std::runtime_error("json::parse: end of stream.");
 				ist.read(&ch, 1);
-				if(ch == 'e')
-				{
-					if(digits == 0)
-						throw std::runtime_error("json::parse: At least one digit required before 'e'.");
-					else if(!scientific_)
-					{
-						buffer += ch;
-						scientific_ = true;
-						continue;
-					}
-					else
-						break;
-				}
 				switch(ch)
 				{
 					case '.':
-						if(decimal_points > 0)
+						if(decimal_point)
 							throw std::runtime_error("json::parse: Multiple decimal points in numeric value.");
-						++decimal_points; 
+						decimal_point = true; 
 					case '0':
 					case '1':
 					case '2':
@@ -1837,26 +2238,26 @@ parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
 					case '7':
 					case '8':
 					case '9':
-						++digits;
 						buffer += ch;
 						break;
+					case 'e':
+						if(!exponent_)
+						{
+							buffer += ch;
+							exponent_ = true;
+							continue;
+						}
+						throw std::runtime_error("json::parse: Invalid char 'e' in numeric value.");
+						break; 
 					case '+': 
-						if(scientific_ && !scientific_sign_)
+					case '-': 
+						if(exponent_ && !exponent_sign_)
 						{
-							scientific_sign_ = true;
 							buffer += ch;
+							exponent_sign_ = true;
+							continue;
 						}
-						else
-							throw std::runtime_error("json::parse: Invalid positive sign in numeric value.");
-						break;
-					case '-':
-						if(scientific_ && !scientific_sign_)
-						{
-							scientific_sign_ = true;
-							buffer += ch;
-						}
-						else
-							throw std::runtime_error("json::parse: Invalid negative sign in numeric value.");
+						throw std::runtime_error("json::parse: Invalid negative sign in numeric value.");
 						break;
 					case ',':
 					case '}':
@@ -1870,15 +2271,7 @@ parse(std::istream & ist, json::Entry & jentry, char & ch) noexcept(false)
 				}
 			}
 			jentry.key = std::move(key.string());
-			if(decimal_points > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one decimal points.");
-			if(positive_signs > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one positive signs.");
-			if(negative_signs > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one negative signs.");
-			if(positive_signs >= 1 && negative_signs >= 1)
-				throw std::runtime_error("json::parse: invalid numeric value. mixed positive and negative signs.");
-			if(decimal_points > 0 || scientific_)
+			if(decimal_point || exponent_)
 				jentry.value = make_base_ptr(std::atof(buffer.c_str()));
 			else
 				jentry.value = make_base_ptr(std::atoll(buffer.c_str()));
@@ -1933,11 +2326,13 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 			jelement = make_base_ptr(std::move(value));
 			ist.read(&ch, 1);
 		}
-		else if(std::isdigit(ch) || ch == '+' || ch == '-' || ch == '.') // integer or floating point number
+		else if(std::isdigit(ch) || ch == '+' || ch == '-' || ch == '.' || ch == 'e') // integer or floating point number
 		{
-			size_t decimal_points = ch == '.' ? 1 : 0;
-			size_t positive_signs = ch == '+' ? 1 : 0;
-			size_t negative_signs = ch == '-' ? 1 : 0;
+			bool decimal_point = ch == '.';
+			bool exponent_ = false;
+			bool exponent_sign_ = false;
+			if(ch == 'e' )
+				throw std::runtime_error("json::parse: At least one digit required before 'e'.");
 			string_t buffer;
 			buffer += ch;
 			bool continue_ = true;
@@ -1949,9 +2344,9 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 				switch(ch)
 				{
 					case '.':
-						if(decimal_points > 0)
+						if(decimal_point)
 							throw std::runtime_error("json::parse: Multiple decimal points in numeric value.");
-						++decimal_points; 
+						decimal_point = true; 
 					case '0':
 					case '1':
 					case '2':
@@ -1964,15 +2359,37 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 					case '9':
 						buffer += ch;
 						break;
+					case 'e':
+						if(!exponent_)
+						{
+							buffer += ch;
+							exponent_ = true;
+							continue;
+						}
+						throw std::runtime_error("json::parse: Invalid char 'e' in numeric value.");
+						break; 
 					case '+': 
-						throw std::runtime_error("json::parse: Invalid positive sign in numeric value.");
-						break;
 					case '-':
+						if(exponent_ && !exponent_sign_)
+						{
+							buffer += ch;
+							exponent_sign_ = true;
+							continue;
+						}
 						throw std::runtime_error("json::parse: Invalid negative sign in numeric value.");
 						break;
 					case ',':
-					case '}':
+					case ']':
 						continue_ = false;
+						break;
+					case ' ':
+						continue_ = false;
+						if(!_skip_spaces(ist, ch, false))
+							throw std::runtime_error("json::parse: end of stream");
+						if(ch == ',')
+							continue;
+						else
+							throw std::runtime_error("json::parse: expecting ',' or ']'");
 						break;
 					default:
 						continue_ = false;
@@ -1981,15 +2398,7 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 						break;
 				}
 			}
-			if(decimal_points > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one decimal points.");
-			if(positive_signs > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one positive signs.");
-			if(negative_signs > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one negative signs.");
-			if(positive_signs >= 1 && negative_signs >= 1)
-				throw std::runtime_error("json::parse: invalid numeric value. mixed positive and negative signs.");
-			if(decimal_points > 0)
+			if(decimal_point || exponent_)
 				jelement = make_base_ptr(std::atof(buffer.c_str()));
 			else
 				jelement = make_base_ptr(std::atoll(buffer.c_str()));
@@ -2049,9 +2458,13 @@ parse(std::istream & ist, json::Object & jobject, bool skip_opening_check) noexc
 	// read "key":value pairs
 	while(!ist.eof())
 	{
+		if(!_skip_spaces(ist, ch, false))
+			throw std::runtime_error("json::parse: end of stream.");
+		if(ch == '}')
+			break;
 		json::Entry jentry;
-		parse(ist, jentry, ch);
-		jobject.entries().insert(object_entry_t(jentry.key, std::move(jentry.value)));
+		parse(ist, jentry, ch, true);
+		jobject.entries().insert_or_assign(std::move(jentry.key), std::move(jentry.value));
 		if(!_skip_spaces(ist, ch, true))
 			throw std::runtime_error("json::parse: end of stream.");
 		if(ch == ',')
@@ -2075,6 +2488,9 @@ operator>>(std::istream & ist, json::Integer & jinteger) { return json::parse(is
 
 static inline std::istream &
 operator>>(std::istream & ist, json::Number & jnumber) { return json::parse(ist, jnumber, '\0'); }
+
+static inline std::istream &
+operator>>(std::istream & ist, json::String & jstring) { return json::parse(ist, jstring); }
 
 static inline std::istream &
 operator>>(std::istream & ist, json::Array & jarray) { return json::parse(ist, jarray); }
