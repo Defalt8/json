@@ -311,8 +311,8 @@ static inline base_ptr_t make_base_ptr(Boolean value_);
 static inline base_ptr_t make_base_ptr(boolean_t value_);
 static inline base_ptr_t make_base_ptr(Integer value_);
 static inline base_ptr_t make_base_ptr(integer_t value_);
-static inline base_ptr_t make_base_ptr(Number value_);
-static inline base_ptr_t make_base_ptr(number_t value_);
+static inline base_ptr_t make_base_ptr(Number value_, int precision_);
+static inline base_ptr_t make_base_ptr(number_t value_, int precision_);
 static inline base_ptr_t make_base_ptr(String value_);
 static inline base_ptr_t make_base_ptr(string_t value_);
 static inline base_ptr_t make_base_ptr(char const * value_);
@@ -933,7 +933,8 @@ class Integer final : public Base
 
 class Number final : public Base 
 {
-	number_t m_number {};
+	number_t m_number    {};
+	int      m_precision = -1;
 
  public:
 	using value_t = number_t;
@@ -942,8 +943,9 @@ class Number final : public Base
 	~Number()              = default;
 	Number(Number &&)      = default;
 	Number(Number const &) = delete;
-	Number(number_t number_)
-		: m_number { number_ }
+	Number(number_t number_, int precision_ = -1)
+		: m_number    { number_ }
+		, m_precision { precision_ }
 	{}
 	
 	Number & operator=(Number &&)      = default;
@@ -951,10 +953,12 @@ class Number final : public Base
 	
 	Type type() const noexcept override { return Type::Number; }
 
-	number_t       & number()       noexcept { return m_number; }
-	number_t const & number() const noexcept { return m_number; }
-	value_t        & value()        noexcept { return m_number; }
-	value_t  const & value()  const noexcept { return m_number; }
+	number_t       & number()           noexcept { return m_number; }
+	number_t const & number()     const noexcept { return m_number; }
+	value_t        & value()            noexcept { return m_number; }
+	value_t  const & value()      const noexcept { return m_number; }
+	int            & precision()        noexcept { return m_precision; }
+	int      const & precision()  const noexcept { return m_precision; }
 
 	operator value_t const & () const noexcept { return m_number; }
 
@@ -1101,6 +1105,20 @@ class Array final : public Base
 		return *it;
 	}
 
+	// @refer at(size_t)
+	array_element_t &
+	operator[](size_t index)
+	{
+		return this->at(index);
+	}
+
+	// @refer at(size_t) const
+	array_element_t const &
+	operator[](size_t index) const
+	{
+		return this->at(index);
+	}
+
 	// T must match the json type. Like int types for Integer
 	template <typename T, class C = json_t<T>>
 	C *
@@ -1196,6 +1214,15 @@ class Array final : public Base
 		}
 		return m_elements.cend();
 	}
+
+	// removes all entries
+	void
+	clear() noexcept
+	{
+		m_elements.clear();
+	}
+
+	size_t size() const noexcept { return m_elements.size(); }
 
 	array_elements_t       & elements()       noexcept { return m_elements; }
 	array_elements_t const & elements() const noexcept { return m_elements; }
@@ -1525,6 +1552,15 @@ class Object final : public Base
 	// alias for remove
 	inline bool erase(string_t const & id) noexcept { return remove(id); }
 
+	// removes all entries
+	void
+	clear() noexcept
+	{
+		m_entries.clear();
+	}
+
+	size_t size() const noexcept { return m_entries.size(); }
+
 	object_entries_t       & entries()       noexcept { return m_entries; }
 	object_entries_t const & entries() const noexcept { return m_entries; }
 	value_t                & value()         noexcept { return m_entries; }
@@ -1554,26 +1590,87 @@ struct Entry
 
 };
 
-static inline base_ptr_t make_base_ptr()                     { return base_ptr_t(new Null()); }
+namespace detail {
+
+	template <class C>
+	struct BasePtrMaker
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Null(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Boolean>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Boolean(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Integer>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Integer(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Number>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Number(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<String>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new String(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Array>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Array(std::forward<Args>(args)...)); }
+	};
+
+	template <>
+	struct BasePtrMaker<Object>
+	{
+		template <typename... Args>
+		static inline base_ptr_t make(Args &&... args) { return base_ptr_t(new Object(std::forward<Args>(args)...)); }
+	};
+
+
+} // namespace detail
+
+
+template <class C, typename... Args>
+static inline base_ptr_t make_base_ptr(Args &&... args)      { return detail::BasePtrMaker<C>::make(std::forward<Args>(args)...); }
 static inline base_ptr_t make_base_ptr(base_ptr_t value_)    { return std::move(value_); }
-static inline base_ptr_t make_base_ptr(Null value_)          { return base_ptr_t(new Null(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(null_t value_)        { return base_ptr_t(new Null()); }
-static inline base_ptr_t make_base_ptr(Boolean value_)       { return base_ptr_t(new Boolean(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(boolean_t value_)     { return base_ptr_t(new Boolean(value_)); }
-static inline base_ptr_t make_base_ptr(Integer value_)       { return base_ptr_t(new Integer(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(integer_t value_)     { return base_ptr_t(new Integer(value_)); }
+static inline base_ptr_t make_base_ptr()                     { return detail::BasePtrMaker<Null>::make(); }
+static inline base_ptr_t make_base_ptr(Null value_)          { return detail::BasePtrMaker<Null>::make(); }
+static inline base_ptr_t make_base_ptr(null_t value_)        { return detail::BasePtrMaker<Null>::make(); }
+static inline base_ptr_t make_base_ptr(Boolean value_)       { return detail::BasePtrMaker<Boolean>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(boolean_t value_)     { return detail::BasePtrMaker<Boolean>::make(value_); }
 template <typename T, std::enable_if_t<std::is_integral<T>::value,bool> = true>
-static inline base_ptr_t make_base_ptr(T value_)             { return base_ptr_t(new Integer(integer_t(value_))); }
-static inline base_ptr_t make_base_ptr(Number value_)        { return base_ptr_t(new Number(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(number_t value_)      { return base_ptr_t(new Number(value_)); }
+static inline base_ptr_t make_base_ptr(T value_)             { return detail::BasePtrMaker<Integer>::make(integer_t(value_)); }
+static inline base_ptr_t make_base_ptr(Integer value_)       { return detail::BasePtrMaker<Integer>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(integer_t value_)     { return detail::BasePtrMaker<Integer>::make(value_); }
 template <typename T, std::enable_if_t<std::is_floating_point<T>::value,bool> = true>
-static inline base_ptr_t make_base_ptr(T value_)             { return base_ptr_t(new Number(number_t(value_))); }
-static inline base_ptr_t make_base_ptr(String value_)        { return base_ptr_t(new String(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(string_t value_)      { return base_ptr_t(new String(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(char const * value_)  { return base_ptr_t(new String(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(char * value_)        { return base_ptr_t(new String(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(Array value_)         { return base_ptr_t(new Array(std::move(value_))); }
-static inline base_ptr_t make_base_ptr(Object value_)        { return base_ptr_t(new Object(std::move(value_))); }
+static inline base_ptr_t make_base_ptr(T value_)        { return detail::BasePtrMaker<Number>::make(number_t(value_)); }
+static inline base_ptr_t make_base_ptr(Number value_)   { return detail::BasePtrMaker<Number>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(number_t value_) { return detail::BasePtrMaker<Number>::make(value_); }
+template <typename T, std::enable_if_t<std::is_floating_point<T>::value,bool> = true>
+static inline base_ptr_t make_base_ptr(T value_, int precision_)        { return detail::BasePtrMaker<Number>::make(number_t(value_), precision_); }
+static inline base_ptr_t make_base_ptr(Number value_, int precision_)   { return detail::BasePtrMaker<Number>::make(std::move(value_), precision_); }
+static inline base_ptr_t make_base_ptr(number_t value_, int precision_) { return detail::BasePtrMaker<Number>::make(value_, precision_); }
+static inline base_ptr_t make_base_ptr(String value_)        { return detail::BasePtrMaker<String>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(string_t value_)      { return detail::BasePtrMaker<String>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(char const * value_)  { return detail::BasePtrMaker<String>::make(value_); }
+static inline base_ptr_t make_base_ptr(char * value_)        { return detail::BasePtrMaker<String>::make(value_); }
+static inline base_ptr_t make_base_ptr(Array value_)         { return detail::BasePtrMaker<Array>::make(std::move(value_)); }
+static inline base_ptr_t make_base_ptr(Object value_)        { return detail::BasePtrMaker<Object>::make(std::move(value_)); }
 
 static inline void 
 print_padding(std::ostream & ost, size_t depth_)
@@ -1617,7 +1714,7 @@ print(std::ostream & ost, json::Integer const & jinteger)
 static std::ostream &
 print(std::ostream & ost, json::Number const & jnumber)
 {
-	return ost << double_to_string(jnumber.number());
+	return ost << double_to_string(jnumber.number(), jnumber.precision());
 }
 
 static std::ostream &
@@ -2110,41 +2207,27 @@ parse(std::istream & ist, json::Entry & jentry, char & ch, bool first_char_read 
 			jentry.value = make_base_ptr(std::move(value));
 			ist.read(&ch, 1);
 		}
-		else if(std::isdigit(ch) || ch == '+' || ch == '-' || ch == '.') // integer or floating point number
+		else if(std::isdigit(ch) || ch == '+' || ch == '-' || ch == '.' || ch == 'e') // integer or floating point number
 		{
-			size_t decimal_points = ch == '.' ? 1 : 0;
-			size_t positive_signs = ch == '+' ? 1 : 0;
-			size_t negative_signs = ch == '-' ? 1 : 0;
+			bool decimal_point = ch == '.';
+			bool exponent_ = false;
+			bool exponent_sign_ = false;
+			if(ch == 'e' )
+				throw std::runtime_error("json::parse: At least one digit required before 'e'.");
 			string_t buffer;
 			buffer += ch;
-			auto digits = 0;
-			bool scientific_ = false;
-			bool scientific_sign_ = false;
 			bool continue_ = true;
 			while(continue_)
 			{
 				if(ist.eof())
 					throw std::runtime_error("json::parse: end of stream.");
 				ist.read(&ch, 1);
-				if(ch == 'e')
-				{
-					if(digits == 0)
-						throw std::runtime_error("json::parse: At least one digit required before 'e'.");
-					else if(!scientific_)
-					{
-						buffer += ch;
-						scientific_ = true;
-						continue;
-					}
-					else
-						break;
-				}
 				switch(ch)
 				{
 					case '.':
-						if(decimal_points > 0)
+						if(decimal_point)
 							throw std::runtime_error("json::parse: Multiple decimal points in numeric value.");
-						++decimal_points; 
+						decimal_point = true; 
 					case '0':
 					case '1':
 					case '2':
@@ -2155,26 +2238,26 @@ parse(std::istream & ist, json::Entry & jentry, char & ch, bool first_char_read 
 					case '7':
 					case '8':
 					case '9':
-						++digits;
 						buffer += ch;
 						break;
+					case 'e':
+						if(!exponent_)
+						{
+							buffer += ch;
+							exponent_ = true;
+							continue;
+						}
+						throw std::runtime_error("json::parse: Invalid char 'e' in numeric value.");
+						break; 
 					case '+': 
-						if(scientific_ && !scientific_sign_)
+					case '-': 
+						if(exponent_ && !exponent_sign_)
 						{
-							scientific_sign_ = true;
 							buffer += ch;
+							exponent_sign_ = true;
+							continue;
 						}
-						else
-							throw std::runtime_error("json::parse: Invalid positive sign in numeric value.");
-						break;
-					case '-':
-						if(scientific_ && !scientific_sign_)
-						{
-							scientific_sign_ = true;
-							buffer += ch;
-						}
-						else
-							throw std::runtime_error("json::parse: Invalid negative sign in numeric value.");
+						throw std::runtime_error("json::parse: Invalid negative sign in numeric value.");
 						break;
 					case ',':
 					case '}':
@@ -2188,15 +2271,7 @@ parse(std::istream & ist, json::Entry & jentry, char & ch, bool first_char_read 
 				}
 			}
 			jentry.key = std::move(key.string());
-			if(decimal_points > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one decimal points.");
-			if(positive_signs > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one positive signs.");
-			if(negative_signs > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one negative signs.");
-			if(positive_signs >= 1 && negative_signs >= 1)
-				throw std::runtime_error("json::parse: invalid numeric value. mixed positive and negative signs.");
-			if(decimal_points > 0 || scientific_)
+			if(decimal_point || exponent_)
 				jentry.value = make_base_ptr(std::atof(buffer.c_str()));
 			else
 				jentry.value = make_base_ptr(std::atoll(buffer.c_str()));
@@ -2251,11 +2326,13 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 			jelement = make_base_ptr(std::move(value));
 			ist.read(&ch, 1);
 		}
-		else if(std::isdigit(ch) || ch == '+' || ch == '-' || ch == '.') // integer or floating point number
+		else if(std::isdigit(ch) || ch == '+' || ch == '-' || ch == '.' || ch == 'e') // integer or floating point number
 		{
-			size_t decimal_points = ch == '.' ? 1 : 0;
-			size_t positive_signs = ch == '+' ? 1 : 0;
-			size_t negative_signs = ch == '-' ? 1 : 0;
+			bool decimal_point = ch == '.';
+			bool exponent_ = false;
+			bool exponent_sign_ = false;
+			if(ch == 'e' )
+				throw std::runtime_error("json::parse: At least one digit required before 'e'.");
 			string_t buffer;
 			buffer += ch;
 			bool continue_ = true;
@@ -2267,9 +2344,9 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 				switch(ch)
 				{
 					case '.':
-						if(decimal_points > 0)
+						if(decimal_point)
 							throw std::runtime_error("json::parse: Multiple decimal points in numeric value.");
-						++decimal_points; 
+						decimal_point = true; 
 					case '0':
 					case '1':
 					case '2':
@@ -2282,15 +2359,37 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 					case '9':
 						buffer += ch;
 						break;
+					case 'e':
+						if(!exponent_)
+						{
+							buffer += ch;
+							exponent_ = true;
+							continue;
+						}
+						throw std::runtime_error("json::parse: Invalid char 'e' in numeric value.");
+						break; 
 					case '+': 
-						throw std::runtime_error("json::parse: Invalid positive sign in numeric value.");
-						break;
 					case '-':
+						if(exponent_ && !exponent_sign_)
+						{
+							buffer += ch;
+							exponent_sign_ = true;
+							continue;
+						}
 						throw std::runtime_error("json::parse: Invalid negative sign in numeric value.");
 						break;
 					case ',':
-					case '}':
+					case ']':
 						continue_ = false;
+						break;
+					case ' ':
+						continue_ = false;
+						if(!_skip_spaces(ist, ch, false))
+							throw std::runtime_error("json::parse: end of stream");
+						if(ch == ',')
+							continue;
+						else
+							throw std::runtime_error("json::parse: expecting ',' or ']'");
 						break;
 					default:
 						continue_ = false;
@@ -2299,15 +2398,7 @@ parse(std::istream & ist, json::array_element_t & jelement, char & ch) noexcept(
 						break;
 				}
 			}
-			if(decimal_points > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one decimal points.");
-			if(positive_signs > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one positive signs.");
-			if(negative_signs > 1)
-				throw std::runtime_error("json::parse: invalid numeric value. More than one negative signs.");
-			if(positive_signs >= 1 && negative_signs >= 1)
-				throw std::runtime_error("json::parse: invalid numeric value. mixed positive and negative signs.");
-			if(decimal_points > 0)
+			if(decimal_point || exponent_)
 				jelement = make_base_ptr(std::atof(buffer.c_str()));
 			else
 				jelement = make_base_ptr(std::atoll(buffer.c_str()));
@@ -2373,7 +2464,7 @@ parse(std::istream & ist, json::Object & jobject, bool skip_opening_check) noexc
 			break;
 		json::Entry jentry;
 		parse(ist, jentry, ch, true);
-		jobject.entries().insert(object_entry_t(jentry.key, std::move(jentry.value)));
+		jobject.entries().insert_or_assign(std::move(jentry.key), std::move(jentry.value));
 		if(!_skip_spaces(ist, ch, true))
 			throw std::runtime_error("json::parse: end of stream.");
 		if(ch == ',')

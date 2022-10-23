@@ -81,16 +81,16 @@ class Serializer final : public SerializerBase
 
 };
 
-template <typename T, std::enable_if_t<std::is_constructible<Serializer<T>,T &>::value,bool> = true>
+template <typename T, typename... Args, std::enable_if_t<std::is_constructible<Serializer<T>,T &,Args...>::value,bool> = true>
 static inline Serializer<T>
-make_serializer(T & data_ref) noexcept
+make_serializer(T & data_ref, Args &&... args) noexcept
 {
-	return { data_ref };
+	return { data_ref, std::forward<Args>(args)... };
 }
 
-template <typename T>
+template <typename T, typename... Args>
 static inline Serializer<T>
-make_serializer(T const & data_ref) noexcept = delete;
+make_serializer(T const & data_ref, Args &&... args) noexcept = delete;
 
 template <typename T>
 class Serializer<T const> final
