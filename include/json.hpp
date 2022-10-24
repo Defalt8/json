@@ -81,7 +81,7 @@
 	// setting all these to nullptr will print tightly packed in a single line.
 	json::value_spacing = nullptr; // default is " "
 	json::newline = nullptr; // default is "\n"
-	json::padding = nullptr; // default is "   "
+	json::indentation = nullptr; // default is "   "
 	
 
 	/// output to stdout
@@ -300,7 +300,7 @@ static constexpr number_t    inf  = std::numeric_limits<number_t>::infinity();
 static constexpr float       inff = std::numeric_limits<float>::infinity();
 static constexpr long double infl = std::numeric_limits<long double>::infinity();
 static char const * value_spacing = " ";
-static char const * padding = "   ";
+static char const * indentation = "   ";
 static char const * newline = "\n";
 
 static inline base_ptr_t make_base_ptr();
@@ -324,9 +324,9 @@ static std::ostream & print(std::ostream & ost, json::Boolean const & jboolean);
 static std::ostream & print(std::ostream & ost, json::Integer const & jinteger);
 static std::ostream & print(std::ostream & ost, json::Number const & jnumber);
 static std::ostream & print(std::ostream & ost, json::String const & jstring);
-static std::ostream & print(std::ostream & ost, json::Array const & jarray, size_t depth_ = 0, bool padding_ = true);
-static std::ostream & print(std::ostream & ost, json::Object const & jobject, size_t depth_ = 0);
-static std::ostream & print(std::ostream & ost, json::Base const & jbase, size_t depth_ = 0);
+static std::ostream & print(std::ostream & ost, json::Array const & jarray, size_t depth_ = 0, bool indent_ = true);
+static std::ostream & print(std::ostream & ost, json::Object const & jobject, size_t depth_ = 0, bool indent_ = true);
+static std::ostream & print(std::ostream & ost, json::Base const & jbase, size_t depth_ = 0, bool indent_ = true);
 
 static std::istream & parse(std::istream & ist, json::Null & jnull, char first_char = '\0', bool first_char_read = false) noexcept(false);
 static std::istream & parse(std::istream & ist, json::Boolean & jboolean, char first_char = '\0', bool first_char_read = false) noexcept(false);
@@ -998,7 +998,8 @@ class String final : public Base
 
 class Array final : public Base
 {
-	array_elements_t m_elements {};
+	array_elements_t m_elements    {};
+	bool             m_single_line = false;
 
  public:
 	using value_t = array_elements_t;
@@ -1026,7 +1027,7 @@ class Array final : public Base
 	}
 
 	template <typename V0, typename... Args>
-	Array(V0 && v0, Args &&... args)
+	explicit Array(V0 && v0, Args &&... args)
 		: Array({ make_base_ptr(std::forward<V0>(v0)), make_base_ptr(std::forward<Args>(args))... })
 	{}
 
@@ -1223,6 +1224,8 @@ class Array final : public Base
 	}
 
 	size_t size() const noexcept { return m_elements.size(); }
+	bool & single_line()       noexcept { return m_single_line; }
+	bool   single_line() const noexcept { return m_single_line; }
 
 	array_elements_t       & elements()       noexcept { return m_elements; }
 	array_elements_t const & elements() const noexcept { return m_elements; }
@@ -1233,7 +1236,8 @@ class Array final : public Base
 
 class Object final : public Base
 {
-	object_entries_t m_entries {};
+	object_entries_t m_entries     {};
+	bool             m_single_line = false;
 
 	template <typename... Args>
 	base_ptr_t *
@@ -1368,7 +1372,7 @@ class Object final : public Base
 	// C must be a valid json type such as Null, Boolean or String
 	template <class C>
 	C *
-	get(string_t const &) noexcept
+	get(string_t const & id) noexcept
 	{
 		auto * base_ptr = get(id);
 		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
@@ -1379,7 +1383,7 @@ class Object final : public Base
 	// @refer get<C>(string_t const &)
 	template <class C>
 	C const *
-	get(string_t const &) const noexcept
+	get(string_t const & id) const noexcept
 	{
 		auto const * base_ptr = get(id);
 		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
@@ -1390,7 +1394,7 @@ class Object final : public Base
 	// C must be a valid json type such as Null, Boolean or String
 	template <class C, typename V = typename C::value_t>
 	V *
-	get_value(string_t const &) noexcept
+	get_value(string_t const & id) noexcept
 	{
 		auto * base_ptr = get(id);
 		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
@@ -1400,7 +1404,7 @@ class Object final : public Base
 
 	template <class C, typename V = typename C::value_t>
 	V const *
-	get_value(string_t const &) const noexcept
+	get_value(string_t const & id) const noexcept
 	{
 		auto const * base_ptr = get(id);
 		if(!base_ptr || base_ptr->get()->type() != CType<C>::value)
@@ -1560,6 +1564,8 @@ class Object final : public Base
 	}
 
 	size_t size() const noexcept { return m_entries.size(); }
+	bool & single_line()       noexcept { return m_single_line; }
+	bool   single_line() const noexcept { return m_single_line; }
 
 	object_entries_t       & entries()       noexcept { return m_entries; }
 	object_entries_t const & entries() const noexcept { return m_entries; }
@@ -1675,9 +1681,9 @@ static inline base_ptr_t make_base_ptr(Object value_)        { return detail::Ba
 static inline void 
 print_padding(std::ostream & ost, size_t depth_)
 {
-	if(padding)
+	if(indentation)
 		for(size_t k = 0; k < depth_; ++k)
-			ost << padding;
+			ost << indentation;
 }
 
 static inline void 
@@ -1724,14 +1730,14 @@ print(std::ostream & ost, json::String const & jstring)
 }
 
 static std::ostream &
-print(std::ostream & ost, json::Array const & jarray, size_t depth_, bool padding_)
+print(std::ostream & ost, json::Array const & jarray, size_t depth_, bool indent_)
 {
-	if(padding_)
+	auto const & array_elements = jarray.elements();
+	size_t size_ = array_elements.size();
+	if(size_ > 0 && indent_)
 		print_padding(ost, depth_);
 	ost << '[';
-	auto const & array_elements = jarray.elements();
 	size_t i = 0;
-	size_t size_ = array_elements.size();
 	size_t size_l = size_ == 0 ? 0 : (size_ - 1);
 	bool new_line_ = false;
 	for(auto const & element : array_elements)
@@ -1741,24 +1747,43 @@ print(std::ostream & ost, json::Array const & jarray, size_t depth_, bool paddin
 		switch(element->type())
 		{
 			case Type::Array:
+				if(!jarray.single_line())
+				{
+					print_newline(ost);
+					new_line_ = true;
+					json::print(ost, *static_cast<Array const *>(element.get()), depth_ + 1, true);
+				}
+				else
+					json::print(ost, *static_cast<Array const *>(element.get()), depth_ + 1, false);
+				break;
 			case Type::Object:
-				new_line_ = true;
-				print_newline(ost);
+				if(!jarray.single_line())
+				{
+					print_newline(ost);
+					new_line_ = true;
+					json::print(ost, *static_cast<Object const *>(element.get()), depth_ + 1, true);
+				}
+				else
+					json::print(ost, *static_cast<Object const *>(element.get()), depth_ + 1, false);
 				break;
 			case Type::String:
 				new_line_ = true;
-				print_newline(ost);
-				print_padding(ost, depth_ + 1);
+				if(!jarray.single_line())
+				{
+					print_newline(ost);
+					print_padding(ost, depth_ + 1);
+				}
+				json::print(ost, *element, depth_ + 1);
 				break;
 			default:
+				json::print(ost, *element, depth_ + 1);
 				break;
 		}
-		json::print(ost, *element, depth_ + 1);
 		if(i < size_l)
 			ost << ", ";
 		++i;
 	}
-	if(new_line_ && padding_)
+	if(new_line_ && indent_ && !jarray.single_line())
 	{
 		if(i > 0)
 			print_newline(ost);
@@ -1770,18 +1795,21 @@ print(std::ostream & ost, json::Array const & jarray, size_t depth_, bool paddin
 }
 
 static std::ostream &
-print(std::ostream & ost, json::Object const & jobject, size_t depth_)
+print(std::ostream & ost, json::Object const & jobject, size_t depth_, bool indent_)
 {
 	auto const & jobject_entries = jobject.entries();
 	size_t i = 0;
 	size_t size_ = jobject_entries.size();
-	if(size_ > 0)
+	if(size_ > 0 && indent_)
 		print_padding(ost, depth_);
 	ost << '{';
 	for(auto const & entry : jobject_entries)
 	{
-		print_newline(ost);
-		print_padding(ost, depth_ + 1);
+		if(!jobject.single_line())
+		{
+			print_newline(ost);
+			print_padding(ost, depth_ + 1);
+		}
 		ost << '"' << entry.first << "\":";
 		if(value_spacing)
 			ost << value_spacing;
@@ -1806,9 +1834,13 @@ print(std::ostream & ost, json::Object const & jobject, size_t depth_)
 			{
 				auto const & jobject = get<Object>(value);
 				auto const & entries_ = jobject.entries();
-				if(entries_.size() > 0)
+				if(entries_.size() > 0 && !jobject.single_line())
+				{
 					print_newline(ost);
-				json::print(ost, jobject, depth_ + 1);
+					json::print(ost, jobject, depth_ + 1, true);
+				}
+				else
+					json::print(ost, jobject, depth_ + 1, false);
 				break;
 			}
 			default:
@@ -1819,16 +1851,19 @@ print(std::ostream & ost, json::Object const & jobject, size_t depth_)
 			ost << ",";
 		++i;
 	}
-	if(i > 0)
-		print_newline(ost);
-	if(size_ > 0)
-		print_padding(ost, depth_);
+	if(!jobject.single_line())
+	{
+		if(i > 0)
+			print_newline(ost);
+		if(size_ > 0)
+			print_padding(ost, depth_);
+	}
 	ost << '}';
 	return ost;
 }
 
 static std::ostream &
-print(std::ostream & ost, json::Base const & jbase, size_t depth_)
+print(std::ostream & ost, json::Base const & jbase, size_t depth_, bool indent_)
 {
 	switch(jbase.type())
 	{
@@ -1837,8 +1872,8 @@ print(std::ostream & ost, json::Base const & jbase, size_t depth_)
 		case json::Type::Integer: return json::print(ost, static_cast<json::Integer const &>(jbase));
 		case json::Type::Number:  return json::print(ost, static_cast<json::Number const &>(jbase));
 		case json::Type::String:  return json::print(ost, static_cast<json::String const &>(jbase));
-		case json::Type::Object:  return json::print(ost, static_cast<json::Object const &>(jbase), depth_);
-		case json::Type::Array:   return json::print(ost, static_cast<json::Array const &>(jbase), depth_);
+		case json::Type::Object:  return json::print(ost, static_cast<json::Object const &>(jbase), depth_, indent_);
+		case json::Type::Array:   return json::print(ost, static_cast<json::Array const &>(jbase), depth_, indent_);
 		default: return ost;
 	}
 }
@@ -2414,12 +2449,40 @@ parse(std::istream & ist, json::Array & jarray, bool skip_opening_check) noexcep
 {
 	char ch;
 	// skip white-spaces until '[' is reached
-	if(!skip_opening_check)
+	if(skip_opening_check)
+		ch = '[';
+	else
 	{
 		if(!_skip_spaces(ist, ch))
 			throw std::runtime_error("json::parse: end of stream.");
 		if(ch != '[')
 			throw std::runtime_error("json::parse: missing opening square bracket for array.");
+	}
+	// skip whitespaces and check for \newline 
+	{
+		bool continue_ = true;
+		bool single_line = true;
+		while(continue_)
+		{
+			ist.read(&ch, 1);
+			if(ist.eof())
+				throw std::runtime_error("json::parse: end of stream.");
+			switch(ch)
+			{
+				case '\n':
+					single_line = false; 
+				case ' ':
+				case '\t':
+				case '\v':
+				case '\r':
+				case '\f':
+					continue;
+				default:
+					continue_ = false;
+					break;
+			}
+		}
+		jarray.single_line() = single_line;
 	}
 	while(!ist.eof())
 	{
@@ -2444,22 +2507,43 @@ parse(std::istream & ist, json::Object & jobject, bool skip_opening_check) noexc
 {
 	char ch;
 	// skip white-spaces until '{' is reached
-	if(!_skip_spaces(ist, ch))
-		throw std::runtime_error("json::parse: end of stream.");
-	if(!skip_opening_check)
+	if(skip_opening_check)
+		ch = '{';
+	else
 	{
+		if(!_skip_spaces(ist, ch))
+			throw std::runtime_error("json::parse: end of stream.");
 		if(ch != '{')
 			throw std::runtime_error("json::parse: missing opening brace for object.");
 	}
-	if(ch == '}')
-		return ist;
-	else if(ch == '"')
-		ist.putback('"');
-	// read "key":value pairs
+	// skip whitespaces and check for \newline 
+	{
+		bool continue_ = true;
+		bool single_line = true;
+		while(continue_)
+		{
+			ist.read(&ch, 1);
+			if(ist.eof())
+				throw std::runtime_error("json::parse: end of stream.");
+			switch(ch)
+			{
+				case '\n':
+					single_line = false; 
+				case ' ':
+				case '\t':
+				case '\v':
+				case '\r':
+				case '\f':
+					continue;
+				default:
+					continue_ = false;
+					break;
+			}
+		}
+		jobject.single_line() = single_line;
+	}
 	while(!ist.eof())
 	{
-		if(!_skip_spaces(ist, ch, false))
-			throw std::runtime_error("json::parse: end of stream.");
 		if(ch == '}')
 			break;
 		json::Entry jentry;
@@ -2475,6 +2559,22 @@ parse(std::istream & ist, json::Object & jobject, bool skip_opening_check) noexc
 			throw std::runtime_error("json::parse: invalid token. ',' or '}' expected.");
 	}
 	return ist;
+}
+
+static std::istream &
+parse(std::istream & ist, json::Base & jbase)
+{
+	switch(jbase.type())
+	{
+		case json::Type::Null:    return json::parse(ist, static_cast<json::Null &>(jbase));
+		case json::Type::Boolean: return json::parse(ist, static_cast<json::Boolean &>(jbase));
+		case json::Type::Integer: return json::parse(ist, static_cast<json::Integer &>(jbase));
+		case json::Type::Number:  return json::parse(ist, static_cast<json::Number &>(jbase));
+		case json::Type::String:  return json::parse(ist, static_cast<json::String &>(jbase));
+		case json::Type::Object:  return json::parse(ist, static_cast<json::Object &>(jbase));
+		case json::Type::Array:   return json::parse(ist, static_cast<json::Array &>(jbase));
+		default: return ist;
+	}
 }
 
 static inline std::istream &
@@ -2497,6 +2597,9 @@ operator>>(std::istream & ist, json::Array & jarray) { return json::parse(ist, j
 
 static inline std::istream &
 operator>>(std::istream & ist, json::Object & jobject) { return json::parse(ist, jobject); }
+
+static inline std::istream &
+operator>>(std::istream & ist, json::Base & jbase) { return json::parse(ist, jbase); }
 
 } // namespace json
 
